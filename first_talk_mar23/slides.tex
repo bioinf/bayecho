@@ -1,0 +1,89 @@
+\documentclass{beamer}
+\usepackage[T2A]{fontenc}
+\usepackage{ dsfont }
+\DeclareSymbolFont{T2Aletters}{T2A}{cmr}{m}{it}
+\usepackage[utf8]{inputenc}
+\setbeamertemplate{footline}[frame number]
+\usetheme{Pittsburgh}
+\usecolortheme{seahorse}
+\setbeamertemplate{items}[default]
+\title[Bayecho]{BayesHammer - Hammer + Echo = Bayecho\\Скрещивая подходы}
+\author{Дмитрий Грошев}
+\date{24.03.2012}
+\institute{}
+
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}{О жизни}
+  Все делают ошибки:
+  \begin{itemize}
+  \item Бог делает ошибки
+  \item Человек делает ошибки
+  \item Секвенатор делает ошибки
+  \end{itemize}
+  Однако, последние можно попытаться исправить
+\end{frame}
+
+\begin{frame}{Об ошибках}
+  Используя некоторые наблюдения, можно попытаться исправить ошибки в ридах
+  \begin{itemize}
+  \item Геном достаточно неравномерен, чтобы риды в большинстве случаев сильно отличались друг от друга
+  \item Покрытие каждого нуклеотида значительно больше 1
+  \item Секвенаторы Illumina редко делают инделы, чаще замены
+  \item Секвенаторы Illumina делают больше ошибок ближе к концу рида
+  \item Ошибки обычно независимы друг от друга и зависят от исходного нуклеотида
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Hammer}
+  \begin{itemize}
+  \item k-меры кластеризуются по дистанции Хемминга (k $\approx$ 55), кластер = группа связанности в графе Хемминга
+  \item В полученных кластерах ищется консенсус
+  \item Полученные k-меры считаются верными
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{BayesHammer}
+  \begin{itemize}
+  \item Так же находим кластеры k-меров
+  \item Кластеризуем сами кластеры ещё раз, анализируя вероятности замены из q-values
+  \item Находим центры кластеров — верные k-меры
+  \item Расширяем множество верных k-меров — рид, целиком покрытый верными k-мерами, целиком верен
+  \item Исправляем риды, внося изменения из исправленных k-меров
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Echo}
+  \begin{itemize}
+  \item Анализируются риды, а не k-меры
+  \item Ищутся достаточно сильно перекрывающиеся риды
+  \item Вводится понятие confusion matrix
+    \begin{equation*}
+      \Phi^{(m)}_{b,b'} = \mathds{P}(r_m = b' | H_m = b)
+    \end{equation*}
+    $r_m$ — нуклеотид в риде в позиции m\\
+    $H_m$ — нуклеотид в истинном сиквенсе в позиции m
+  \item Ищутся наиболее вероятные нуклеотиды в перекрывающихся областях
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Bayecho}
+  Почему бы не взять лучшее от обоих?
+  \begin{itemize}
+  \item Анализировать риды, а не k-меры
+  \item Кластеризовать перекрывающиеся области ридов, используя confusion matrix
+  \item Возможно, кластеризация перекрытий позволит уменьшить влияние ошибок на стадии отбора пересечений
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{ }
+  \begin{center}
+    WUT?
+  \end{center}
+\end{frame}
+
+\end{document}
