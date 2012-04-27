@@ -3,11 +3,14 @@
 import argparse
 import random
 import utils
+import sys
 
+STRAND_CHARACTERS = "TAGC"
 DEFAULT_READ_LEN = 10
 DEFAULT_COVERAGE_MEAN = 5.
 DEFAULT_COVERAGE_STDEV = 1.
-MISREAD_IDXS = dict(enumerate("NATGC"))
+MISREAD_IDX_TO_BASE = dict(enumerate("NATGC"))
+MISREAD_BASE_TO_IDX = dict((b, a) for a, b in enumerate("NATGC"))
 MISREAD_PROBS = [
                  [1. , 0. , 0. , 0. , 0. ], # from N
                  [.02, .9 , .04, .02, .02], # from A
@@ -18,10 +21,16 @@ MISREAD_PROBS = [
 
 def check_misread_probs(probs):
     if not all(sum(prob) == 1.0 for prob in probs):
-        raise Exception("misread probabilities for each base " \
-                        "should add up to 1.0!")
+        raise Exception("ERROR: misread probabilities for each base " \
+                        "should add up to 1.0")
 
-check_misread_probs(MISREAD_PROBS)
+def gen_read(strand, read_len):
+    startpos = random.randint(0, len(strand) - read_len - 1)
+    seq = list(strand[startpos:startpos+read_len])
+    for i in xrange(len(seq)):
+        probs = MISREAD_PROBS[MISREAD_BASE_TO_IDX[seq[i]]]
+        seq[i] = MISREAD_IDX_TO_BASE[utils.loaded_dice(probs)]
+    return "".join(seq)
 
 
 descr_str = """Generates sample reads from provided DNA strands (of equal length).
@@ -43,3 +52,34 @@ parser.add_argument("-d", "--coverage_stdev", type=float,
                     help="coverage stdev, default: %s" % DEFAULT_COVERAGE_STDEV)
 
 args = parser.parse_args()
+check_misread_probs(MISREAD_PROBS)
+
+strands = []
+s = ""
+while True:
+    s = sys.stdin.readline().strip()
+    if len(s) > 0:
+        strands.append(s)
+    else:
+        break
+
+
+strands_n = len(strands)
+if strands_n == 0:
+    exit("ERROR: no strands provided")
+
+strands_len = len(strands[0])
+if not all(len(s) == strands_len for s in strands):
+    exit("ERROR: strands should have equal lengthes")
+if not all(all(c in set(STRAND_CHARACTERS) for c in s) for s in strands):
+    exit("ERROR: strands can contain only %s" % STRAND_CHARACTERS)
+
+reads = []
+for strand in strands:
+    for i in xrange(int(round(random.gauss(args.cov_mean, args.cov_stdev)))):
+        reads.append(gen_read(strand, args.read_len))
+
+random.shuffle(reads)
+
+for r in reads:
+    print r
