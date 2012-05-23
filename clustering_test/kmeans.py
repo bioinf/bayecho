@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import random
 import utils
 from operator import itemgetter
@@ -134,3 +136,6 @@ def main():
     print centroids
     print "groups:"
     for g in groups: print g
+
+if __name__ == "__main__":
+    main()
