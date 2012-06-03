@@ -6,6 +6,7 @@
  */
 
 #include "collection_utils.h"
+#include <iostream>
 double sum_vector(vector<double> array){
 	double sum = 0;
 	for (size_t i = 0; i < array.size(); ++i){

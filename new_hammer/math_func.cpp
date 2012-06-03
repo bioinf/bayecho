@@ -10,14 +10,15 @@
 #include <map>
 #include <time.h>
 #include <stdlib.h>
+#include "brother.h"
 
-double lMultinomial(const vector<string>& kmers) {
+double lMultinomial(const vector<Brother>& kmers) {
 	map<string, int> kmers_count;
 	for (size_t i = 0; i < kmers.size(); ++i){
-		if (kmers_count.find(kmers[i]) == kmers_count.end()){
-			kmers_count.insert(pair<string, int>( kmers[i], 1));
+		if (kmers_count.find(kmers[i].seq) == kmers_count.end()){
+			kmers_count.insert(pair<string, int>( kmers[i].seq, 1));
 		} else{
-			kmers_count[kmers[i]] += 1;
+			kmers_count[kmers[i].seq] += 1;
 		}
 	}
 	double res = 0.0, sum = 0.0;
@@ -28,8 +29,8 @@ double lMultinomial(const vector<string>& kmers) {
 	return lgamma(sum) - res;
 }
 
-double lBeta(vector<vector<string> >& groups) {
-	double res = 0.0, mult = 0.0;
+double lBeta(vector<vector<Brother> >& groups) {
+	double res = 0.0, mult = 1.0;
 	for (size_t i = 0; i < groups.size(); ++i) {
 		res += lgamma(groups[i].size());
 		mult *= groups[i].size();

@@ -1,7 +1,7 @@
 CXX = g++
-CXXFLAGS = -Wall -O3
+CXXFLAGS = -Wall -O3 -w
 HEADERS = *.hpp
-LIB = DNASeq.o NeighborSet.o KmerHashMap.o
+LIB = collection_utils.o distances.o math_func.o hammer.o DNASeq.o NeighborSet.o KmerHashMap.o
 TARGETS = hashing NeighborJoin NeighborJoinParam NeighborMerge Voting HashMerge
 
 %.o:	%.cpp $(HEADERS)

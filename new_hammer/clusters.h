@@ -9,14 +9,15 @@
 #define CLUSTERS_CPP_
 #include <vector>
 #include <string>
+#include "brother.h"
 
 using namespace std;
 
 struct Clusters{
 	vector<string> centers;
-	vector<vector<string> > groups;
+	vector<vector<Brother> > groups;
 
-	Clusters(vector<string> p_centers, vector< vector<string> > p_groups){
+	Clusters(vector<string> p_centers, vector< vector<Brother> > p_groups){
 		centers = p_centers;
 		groups = p_groups;
 	}
