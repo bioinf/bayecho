@@ -6,6 +6,9 @@
 #include <tr1/unordered_map>
 #include <tr1/memory>
 #include <algorithm>
+#include <stdio.h>
+#include <string.h>
+
 
 class DNASeq {
     friend class Kmer;

@@ -17,6 +17,8 @@
 #include "DNASeq.hpp"
 #include "MMAPReads.hpp"
 #include "NeighborSet.hpp"
+#include "brother.h"
+#include "hammer.h"
 
 using namespace std;
 
@@ -37,7 +39,7 @@ void zeroMat(int seq_len, double mat[][4][4]) {
                 mat[l][i][j]=0;
 }
 
-void initLoglikelihoodMat(const Options& opt, int max_seq_len, double confMat[][4][4], double loglikelihood[][4][4]) {
+void initLoglikelihoodMat(const Options& opt, int max_seq_len, double confMat[][4][4], double loglikelihood[][4][4], double*** confMat1) {
     zeroMat(max_seq_len, confMat);
     zeroMat(max_seq_len, loglikelihood);
 
@@ -47,10 +49,13 @@ void initLoglikelihoodMat(const Options& opt, int max_seq_len, double confMat[][
         for(int pos=0; pos<max_seq_len; pos++)
             for(int b1=0; b1<4; b1++)
                 for(int b2=0; b2<4; b2++)
-                    if(b1==b2)
+                    if(b1==b2){
+                    	confMat1[pos][b1][b2] = 0.99;
                         loglikelihood[pos][b1][b2]=log(0.99);
-                    else
+                    } else{
+                    	confMat1[pos][b1][b2] = 0.01/3;
                         loglikelihood[pos][b1][b2]=log(0.01/3);
+                    }
     } else  {
         // Otherwise, load confusion matrix.
         ifstream fin(opt.confMatFName);
@@ -71,8 +76,10 @@ void initLoglikelihoodMat(const Options& opt, int max_seq_len, double confMat[][
         // Normalize and take the log. 
         for(int pos=0; pos<file_len; pos++)
             for(int trueb=0; trueb<4; trueb++)
-                for(int calledb=0; calledb<4; calledb++)
+                for(int calledb=0; calledb<4; calledb++){
                     loglikelihood[pos][calledb][trueb] = log(confMat[pos][trueb][calledb]) - log(tot[pos][calledb]);
+                    confMat1[pos][trueb][calledb] = confMat[pos][trueb][calledb]/tot[pos][calledb];
+                    }
 
         // Fill the gap. 
         for(int pos=file_len; pos<max_seq_len; pos++)
@@ -116,7 +123,14 @@ int main(int argc, char** argv) {
     // Error loglikelihood matrix.
     double confMat[max_seq_len][4][4];
     double loglikelihood[max_seq_len][4][4];
-    initLoglikelihoodMat(opt, max_seq_len, confMat, loglikelihood);
+    double*** confMat1 = new double**[max_seq_len];
+        for (int i = 0; i < max_seq_len; ++i){
+        	confMat1[i] = new double*[4];
+        	for (int j = 0; j < 4; ++j){
+        		confMat1[i][j] = new double[4];
+        	}
+        }
+    initLoglikelihoodMat(opt, max_seq_len, confMat, loglikelihood, confMat1);
    
     // Voting Mechanism.
     // Statitstics.
@@ -135,12 +149,16 @@ int main(int argc, char** argv) {
     vector<tr1::shared_ptr<NeighborSetLoader> > neighborLoader;
     for(size_t fiter=0; fiter<opt.inputFNames.size(); fiter++)
         neighborLoader.push_back(tr1::shared_ptr<NeighborSetLoader>(new NeighborSetLoader(opt.inputFNames[fiter])));
-
+        
+	
+        
     // Zero out confusion matrix.
     zeroMat(max_seq_len, confMat);
 
     for(unsigned int readid = opt.read_st; readid<opt.read_ed; readid++) {
-        const string orig_seq = string(readfile[readid]);
+      	//if (readid != 1)
+      	//	continue;
+        string orig_seq = string(readfile[readid]);
         const int seq_len = orig_seq.size();
         string corr_seq(seq_len, 0);
         string qual_seq(seq_len, 0);
@@ -170,7 +188,49 @@ int main(int argc, char** argv) {
                     (*readNeighbors)[nn->first] = nn->second;
             }
         }
-
+	vector<Brother> neighborsForClust;
+	
+	//find realNeigbor by Hammer
+	for(map<unsigned int, NeighborInfo>::iterator neighbors = readNeighbors->begin();
+                neighbors!=readNeighbors->end(); neighbors++) {
+                const unsigned int& neighborId = neighbors->first;
+            	const char* neighbor_seq = readfile[neighborId];
+            	const int neighbor_seq_len = strlen(neighbor_seq);
+            	const int overlap = neighbors->second.get_overlap(seq_len, neighbor_seq_len);
+            	if(!neighbors->second.isNeighbor(seq_len, neighbor_seq_len, opt.K, opt.h, opt.e))
+                	continue;
+                string new_brother ="";
+                //cerr << "st1 "<< neighbors->second.get_st1() <<"\n";
+                //cerr << neighbor_seq <<"\n";
+                
+                if (neighbors->second.get_offset() < 0){              
+                	for (int iter = -neighbors->second.get_offset(); iter < seq_len; ++iter){
+                		new_brother += neighbor_seq[iter];
+                	}  
+                	for (int iter = 0; iter < -neighbors->second.get_offset(); ++iter){
+                		new_brother += '_';
+                	}
+                	
+                } else {
+                	for (int iter = 0; iter <neighbors->second.get_offset(); ++iter){
+                		new_brother += '_';
+                	}
+                	for (int iter = neighbors->second.get_offset(); iter < seq_len; ++iter){
+                		new_brother += neighbor_seq[iter - neighbors->second.get_offset()];
+                	}
+                	
+                }
+                neighborsForClust.push_back(Brother(neighborId, new_brother));
+        }
+        vector<Brother> realNeighbors = findRealBrothers(orig_seq, neighborsForClust, confMat1);
+         tr1::shared_ptr<map<unsigned int, NeighborInfo> > realNeighborsMap(new map<unsigned int, NeighborInfo>);
+        for (size_t real_neighbor_id = 0; real_neighbor_id < realNeighbors.size(); ++real_neighbor_id){
+        	unsigned int id =(unsigned int) realNeighbors[real_neighbor_id].read_id;
+        	(*realNeighborsMap)[id] = (*readNeighbors)[id];
+        }
+        readNeighbors = realNeighborsMap;
+        
+        
         // Voting.
         // Collect votes.
         set<unsigned int> my_neighbors;

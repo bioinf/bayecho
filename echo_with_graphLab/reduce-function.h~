@@ -1,0 +1,14 @@
+#ifndef REDUCE_FUNCTION_
+#define REDUCE_FUNCTION_
+#include "update_function.h"
+
+void myReduce( gl_types::iscope& scope, 
+                            graphlab::any& accumulator);
+void apply(graphlab::any& current_data, 
+                          const graphlab::any& new_data);    
+ void merge(graphlab::any& target, 
+                          const graphlab::any& source) {
+  cerr<<"merger function \n";
+}
+                     
+#endif
