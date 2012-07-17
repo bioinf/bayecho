@@ -186,42 +186,55 @@ int main(int argc, char** argv) {
   gl_types::core core;
   map<int, graphlab::vertex_id_t> readid_to_vertexid; 
   graph_type&  graph= core.graph(); 
+  
+  for (unsigned int readid=opt.read_st; readid<opt.read_ed; readid++){
+    graphlab::vertex_id_t  id = graph.add_vertex(MyNode(readid, readfile1, &opt, max_seq_len, loglikelihood, hypothesis));
+    readid_to_vertexid.insert(pair<int, graphlab::vertex_id_t>(readid, id));
+  }
   for (int neighb_i = 0; neighb_i < neighborLoader.size(); neighb_i++){
     NeighborMap neighbors = neighborLoader[neighb_i]->get_map(min_read_id, max_read_id);	    
     for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
       if (readid_to_vertexid.find(it->first) == readid_to_vertexid.end()){
         graphlab::vertex_id_t  id = graph.add_vertex(MyNode(it->first, readfile1, &opt, max_seq_len, loglikelihood, hypothesis));
-        if (it->first != id) {
-          cerr << it->first << " "<<id << "\n";
-        }
         readid_to_vertexid.insert(pair<int, graphlab::vertex_id_t>(it->first, id));
       }
     }
+
+
     for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
      for(map<unsigned int, NeighborInfo>::iterator it1 = it->second->begin(); it1 != it->second->end(); ++it1){	
         if (it->first != it1->first){
-        if (readid_to_vertexid[it->first] == readid_to_vertexid[it1->first]){
-          cerr  <<"\n edge" << it->first << " " << it1->first << " "<<readid_to_vertexid[it1->first];
-        } 
-          graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], *(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
-        }
+        	if (readid_to_vertexid[it->first] == readid_to_vertexid[it1->first]){
+        	} else {
+          		graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], *(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
+        	}
+	}
       }
     }
   }	
   graph.finalize(); 
-    
   for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) {   
     core.add_task(vid, graph_update, 100.);
   }
+
   core.start();
-  
+
   //reduce function  
   tr1::shared_ptr<MyResult> result(new MyResult(max_seq_len, opt));
-  for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) { 
-    
+  cerr << "readfiledfile[0]"<<readfile[0]<<"\n";
+  for(unsigned int readid=opt.read_st; readid<opt.read_ed; readid++) {
+  //for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) { 
+    graphlab::vertex_id_t vid = readid_to_vertexid[readid]; 
+    //cout << "vid "<< vid << " readid " << readid;
     fout << graph.vertex_data(vid).correct_read<< endl;
     fqual << graph.vertex_data(vid).qual << endl;
     
+    if ((graph.vertex_data(vid).correct_read.size() != graph.vertex_data(vid).qual.size()) || graph.vertex_data(vid).qual.size()!=  strlen(readfile[readid]) ){
+      cerr <<"Error "<<readid<< " cor_size "<<graph.vertex_data(vid).correct_read.size() << " qual size " <<graph.vertex_data(vid).qual.size() << " str size \n" <<readfile[readid]<<"\n" ;
+      cerr <<graph.vertex_data(vid).read_id<<" vid"<< vid <<"\n";
+    }
+
+
     if(!readfile.isOrig(graph.vertex_data(vid).read_id))
       continue;
     for (int i1 = 0; i1 < max_seq_len; ++i1){
@@ -231,7 +244,7 @@ int main(int argc, char** argv) {
         }
       }
     }
-    
+
     if(result-> hist_read_ids.find(graph.vertex_data(vid).read_id)==result-> hist_read_ids.end()){
       for (set<unsigned int>::iterator aa = graph.vertex_data(vid).my_neighbors.begin(); aa !=graph.vertex_data(vid).my_neighbors.end(); ++aa){
         result->hist_read_ids.insert(*aa);

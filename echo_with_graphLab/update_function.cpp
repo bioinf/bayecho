@@ -23,19 +23,22 @@
 #include "edge.h"
 
 
-void graph_update(gl_types::iscope &scope,
-        gl_types::icallback &scheduler) {
-    MyNode& vdata = scope.vertex_data();   
-    
+void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
+  MyNode& vdata = scope.vertex_data();
   const string orig_seq = string(vdata.get_readfile()[vdata.get_read_id()]);
   const int seq_len = orig_seq.size();
   string corr_seq(seq_len, 0);
   string qual_seq(seq_len, 0);
   vector<vector<VoteInfo> > Votes(seq_len);
   vector<int> nVotes(seq_len, 0);
+
   MMAPReads& readfile = vdata.get_readfile();
   unsigned int readid = vdata.get_read_id();
+  if (readid == 0){
+    cerr <<" Read id = 0 \n\n";
+  }
   // If read is reverse complement read, output directly.
+  
   if(!readfile.isOrig(readid)) {
     for(int i=0; i<seq_len; i++) {
       corr_seq[i] = 'N';
@@ -46,27 +49,24 @@ void graph_update(gl_types::iscope &scope,
     vdata.nVote = -1;
     return;
   }
+
   map<unsigned int, graphlab::vertex_id_t> readid_to_vertexid; 
   tr1::shared_ptr<map<unsigned int, NeighborInfo> > readNeighbors(new map<unsigned int, NeighborInfo>);
+  
   foreach(graphlab::edge_id_t eid, scope.out_edge_ids()) {
-        MyNode& neighbor =  scope.neighbor_vertex_data(scope.target(eid));
-        readid_to_vertexid.insert(pair<unsigned int, graphlab::vertex_id_t>(neighbor.read_id, scope.target(eid)));
-        Edge& edge = scope.edge_data(eid);
-        NeighborInfo nn (edge.get_offset(), edge.get_nerr());
-        (*readNeighbors)[neighbor.get_read_id()] = nn;
+    MyNode& neighbor =  scope.neighbor_vertex_data(scope.target(eid));
+    readid_to_vertexid.insert(pair<unsigned int, graphlab::vertex_id_t>(neighbor.read_id, scope.target(eid)));
+    Edge& edge = scope.edge_data(eid);
+    NeighborInfo nn (edge.get_offset(), edge.get_nerr());
+    (*readNeighbors)[neighbor.get_read_id()] = nn;
   }
   NeighborInfo myself(0,0);
   (*readNeighbors)[readid] = myself;
-                
-  
-
-  
   
   // Voting.
   // Collect votes.
   set<unsigned int> my_neighbors;
-  for(map<unsigned int, NeighborInfo>::iterator neighbors = readNeighbors->begin();
-                neighbors!=readNeighbors->end(); neighbors++) {
+  for(map<unsigned int, NeighborInfo>::iterator neighbors = readNeighbors->begin(); neighbors!=readNeighbors->end(); neighbors++) {
     const unsigned int& neighborId = neighbors->first;
     const char* neighbor_seq = vdata.get_readfile()[neighborId];
     const int neighbor_seq_len = strlen(neighbor_seq);
@@ -75,82 +75,75 @@ void graph_update(gl_types::iscope &scope,
 
     // This check is not redundant, it is used when selecting h/e
     // so that the neighbor computation can be reused.
+
     if(!neighbors->second.isNeighbor(seq_len, neighbor_seq_len, vdata.opt->K, vdata.opt->h, vdata.opt->e)){
-      readid_to_vertexid.erase(readid_to_vertexid.find(neighbors->first));
+      if (readid_to_vertexid.find(neighbors->first) != readid_to_vertexid.end())
+        readid_to_vertexid.erase(readid_to_vertexid.find(neighbors->first));
       continue;
     }
-    
-    
+
     //collect corrected chars
     graphlab::vertex_id_t neihbor_vertexid = readid_to_vertexid[neighbors->first];
     if (scope.in_edge_ids(neihbor_vertexid).size() > 0){
       Edge& edge = scope.edge_data(scope.in_edge_ids(neihbor_vertexid)[0]);
-      for (map<unsigned int, char>::iterator it = edge.correct_read_chars.begin();
-            it != edge.correct_read_chars.end(); ++it){
+      for (map<unsigned int, char>::iterator it = edge.correct_read_chars.begin(); it != edge.correct_read_chars.end(); ++it){
         if ( vdata.correct_read_chars.find(it->first) == vdata.correct_read_chars.end()){
           vdata.correct_read_chars.insert(pair<int, char>(it->first, it->second));
         } else {
           char a =  vdata.correct_read_chars.find(it->first)->second;
-    	  if ( a != it->second){
-    	    vdata.correct_read_chars[it->first] = '*';
-    	  }  
+    	    if ( a != it->second){
+    	      vdata.correct_read_chars[it->first] = '*';
+    	    }  
         }
       }
     }
 
-
-
-            if(vdata.opt->save_stats)
-                my_neighbors.insert(neighborId);
-
-            const int& st1 = neighbors->second.get_st1();
-            const int& st2 = neighbors->second.get_st2();
-            const char* overlap_seq = &neighbor_seq[st2];
-            const bool orig = readfile.isOrig(neighborId);
-            int pos = orig?(st2):(neighbor_seq_len-(st2)-1);		
-            for(int offset=0; offset<overlap; offset++) {
-                int calledb = baseToInt(overlap_seq[offset]);
-                if(!isAnyBase(calledb)) {
-                    if(!orig) calledb = 3-calledb;
-                    Votes[st1+offset].push_back(VoteInfo(pos, calledb, log_quality, !orig));
-                    nVotes[st1+offset] += 1;
-                    // Original read gets to vote twice.
-                    if(readid==neighborId) {
-                        int nprior = max(1, (int)floor(sqrt(vdata.opt->cov)));
-                        if(vdata.opt->h_rate!=0) nprior = 0;
-                        for(int z=0; z<nprior; z++)
-                            Votes[st1+offset].push_back(VoteInfo(pos, calledb, log_quality, !orig, true));
-                    }
-                }
-                if(orig) pos++; else pos--;
-            }
+    if(vdata.opt->save_stats)
+      my_neighbors.insert(neighborId);
+    const int& st1 = neighbors->second.get_st1();
+    const int& st2 = neighbors->second.get_st2();
+    const char* overlap_seq = &neighbor_seq[st2];
+    const bool orig = readfile.isOrig(neighborId);
+    int pos = orig?(st2):(neighbor_seq_len-(st2)-1);		
+    for(int offset=0; offset<overlap; offset++) {
+      int calledb = baseToInt(overlap_seq[offset]);
+      if(!isAnyBase(calledb)) {
+        if(!orig) calledb = 3 - calledb;
+        Votes[st1+offset].push_back(VoteInfo(pos, calledb, log_quality, !orig));
+        nVotes[st1+offset] += 1;
+        // Original read gets to vote twice.
+        if(readid==neighborId) {
+          int nprior = max(1, (int)floor(sqrt(vdata.opt->cov)));
+          if(vdata.opt->h_rate!=0) nprior = 0;
+          for(int z=0; z<nprior; z++)
+            Votes[st1+offset].push_back(VoteInfo(pos, calledb, log_quality, !orig, true));
         }
-
-		
-    	   
-        // Extract most likely sequence and output.
-        for(int i=0; i<seq_len; i++) {
-          if (vdata.correct_read_chars.find(i) != vdata.correct_read_chars.end() && vdata.correct_read_chars[i] != '*'){
-            corr_seq[i] = vdata.correct_read_chars[i];
-            continue;
-          }	    
-            const int orig_base = baseToInt(orig_seq.at(i));
-            vector<float> base_loglikelihood(16, 0.0); // Likelihood with prior votes.
-            vector<float> base_logquality(16, 0.0);	    // Likelihood without prior votes.
-
-            // perform actual ML estimation
-            for(vector<VoteInfo>::iterator pVote=Votes[i].begin(); pVote!=Votes[i].end(); pVote++)
-                for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
-                    int& b1 = tr1::get<0>(*H);
-                    int& b2 = tr1::get<1>(*H);
-                    int& b1b2 = tr1::get<2>(*H);
-                    int read_b1 = pVote->reverse_complement?3-b1:b1;
-                    int read_b2 = pVote->reverse_complement?3-b2:b2;
-                    
-
-                    if(b1>b2) {
-                        base_loglikelihood[b1b2] = -numeric_limits<float>::infinity();
-                        if(!pVote->prior)
+      }
+      if(orig) pos++; else pos--;
+    }
+  }
+  
+  // Extract most likely sequence and output.
+  for(int i=0; i<seq_len; i++) {
+    if (vdata.correct_read_chars.find(i) != vdata.correct_read_chars.end() && vdata.correct_read_chars[i] != '*'){
+      corr_seq[i] = vdata.correct_read_chars[i];
+      continue;
+    }
+    const int orig_base = baseToInt(orig_seq.at(i));
+    vector<float> base_loglikelihood(16, 0.0); // Likelihood with prior votes.
+    vector<float> base_logquality(16, 0.0);	    // Likelihood without prior votes.
+    
+    // perform actual ML estimation
+    for(vector<VoteInfo>::iterator pVote=Votes[i].begin(); pVote!=Votes[i].end(); pVote++)
+      for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
+        int& b1 = tr1::get<0>(*H);
+        int& b2 = tr1::get<1>(*H);
+        int& b1b2 = tr1::get<2>(*H);
+        int read_b1 = pVote->reverse_complement?3-b1:b1;
+        int read_b2 = pVote->reverse_complement?3-b2:b2;
+        if(b1>b2) {
+          base_loglikelihood[b1b2] = -numeric_limits<float>::infinity();
+          if(!pVote->prior)
                             base_logquality[b1b2] = -numeric_limits<float>::infinity();			
                     } else if(b1==b2)  {
                         // Homozygous case.
@@ -255,9 +248,9 @@ void graph_update(gl_types::iscope &scope,
     	     edge.correct_read_chars.insert(pair<unsigned int, char>(i - edge.offset, corr_seq[i])); 
     	   } 
     	 }   
-    	 /*if (vdata.read_id == 1){
-    	   cerr<<"Correct ids for neighbor " << neighbor.read_id << "\n read1 \n"<<vdata.get_readfile()[1]<< "\n second\n"<<vdata.get_readfile()[neighbor.read_id]<<"\n offset" << edge.offset << " seq_len - offset " << seq_len - edge.offset<<"\n";
-    	 }*/
     }
+    if ((seq_len != corr_seq.size()) || (orig_seq.size() != qual_seq.size()))
+      cerr<<"\nseq"<<orig_seq<<"\n"<<"cor" << corr_seq<<"\nqual"<<qual_seq<<"\n";
+
 }
  

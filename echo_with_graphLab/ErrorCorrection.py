@@ -887,6 +887,10 @@ if __name__ == '__main__':
                 with open(os.path.join(TmpDIR, "output_%d_%d_%f.txt"%(read_st, best_paramh, best_parame)), "r") as fin:
                     with open(os.path.join(TmpDIR, "quality_%d_%d_%f.txt"%(read_st, best_paramh, best_parame)), "r") as qualfin:
                         for line, qualline in itertools.izip(fin,qualfin):
+                            if (ReadLen[SeqOrdering[cur_read_order]]+1 != len(line.strip() + '\n' )):
+                              print cur_read_order, SeqOrdering[cur_read_order], ReadLen[SeqOrdering[cur_read_order]], line.strip()
+                              cur_read_order +=1 
+                              continue
                             readmap[ReadSt[SeqOrdering[cur_read_order]]:(ReadSt[SeqOrdering[cur_read_order]]+ReadLen[SeqOrdering[cur_read_order]]+1)] = line.strip() + '\n'
                             qualmap[ReadSt[SeqOrdering[cur_read_order]]:(ReadSt[SeqOrdering[cur_read_order]]+ReadLen[SeqOrdering[cur_read_order]]+1)] = qualline.strip() + '\n'
                             cur_read_order += 1
