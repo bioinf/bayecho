@@ -23,7 +23,7 @@ MyNode::MyNode(unsigned int read_id1, MMAPReads* readfile1, Options* opt1, int m
     histogram.push_back(0);
   }
   if (MyNode::number_of_copy.find(read_id) != MyNode::number_of_copy.end()){
-  	cerr<<"FAIL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
+    cerr<<"FAIL!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n";
   }
   nVote = 0;
   MyNode::number_of_copy[read_id] = 1; 
@@ -67,5 +67,5 @@ MyNode::~MyNode(){
     MyNode::number_of_copy[read_id] -= 1;
   }
 }
-			
-	
+
+

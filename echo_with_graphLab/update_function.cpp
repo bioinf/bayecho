@@ -49,7 +49,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
 
   map<unsigned int, graphlab::vertex_id_t> readid_to_vertexid; 
   map<unsigned int, NeighborInfo> readNeighbors;
-  
+
   foreach(graphlab::edge_id_t eid, scope.out_edge_ids()) {
     MyNode& neighbor =  scope.neighbor_vertex_data(scope.target(eid));
     readid_to_vertexid.insert(pair<unsigned int, graphlab::vertex_id_t>(neighbor.read_id, scope.target(eid)));
@@ -59,7 +59,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
   }
   NeighborInfo myself(0,0);
   readNeighbors[readid] = myself;
-  
+
   // Voting.
   // Collect votes.
   set<unsigned int> my_neighbors;
@@ -78,22 +78,22 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
         readid_to_vertexid.erase(readid_to_vertexid.find(neighbors->first));
       continue;
     }
-    
+
     /*//collect corrected chars
-    graphlab::vertex_id_t neihbor_vertexid = readid_to_vertexid[neighbors->first];
-    foreach(graphlab::edge_id_t eid, scope.in_edge_ids()) {
+      graphlab::vertex_id_t neihbor_vertexid = readid_to_vertexid[neighbors->first];
+      foreach(graphlab::edge_id_t eid, scope.in_edge_ids()) {
       Edge& edge = scope.edge_data(eid);
       for (map<unsigned int, char>::iterator it = edge.get_message().get_message().begin(); it != edge.get_message().get_message().end(); ++it){
-        if ( vdata.correct_read_chars.find(it->first) == vdata.correct_read_chars.end()){
-          vdata.correct_read_chars.insert(pair<int, char>(it->first, it->second));
-        } else {
-          char a =  vdata.correct_read_chars.find(it->first)->second;
-    	    if ( a != it->second){
-    	      vdata.correct_read_chars[it->first] = '*';
-    	    }  
-        }
+      if ( vdata.correct_read_chars.find(it->first) == vdata.correct_read_chars.end()){
+      vdata.correct_read_chars.insert(pair<int, char>(it->first, it->second));
+      } else {
+      char a =  vdata.correct_read_chars.find(it->first)->second;
+      if ( a != it->second){
+      vdata.correct_read_chars[it->first] = '*';
+      }  
       }
-    }*/
+      }
+      }*/
 
     if(vdata.opt->save_stats)
       my_neighbors.insert(neighborId);
@@ -119,17 +119,17 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
       if(orig) pos++; else pos--;
     }
   }
-  
+
   // Extract most likely sequence and output.
   for(int i=0; i<seq_len; i++) {
     /*if (vdata.correct_read_chars.find(i) != vdata.correct_read_chars.end() && vdata.correct_read_chars[i] != '*'){
       corr_seq[i] = vdata.correct_read_chars[i];
       continue;
-    }*/
+      }*/
     const int orig_base = baseToInt(orig_seq.at(i));
     vector<float> base_loglikelihood(16, 0.0); // Likelihood with prior votes.
     vector<float> base_logquality(16, 0.0);	    // Likelihood without prior votes.
-    
+
     // perform actual ML estimation
     for(vector<VoteInfo>::iterator pVote=Votes[i].begin(); pVote!=Votes[i].end(); pVote++)
       for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
@@ -152,75 +152,75 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
           base_loglikelihood[b1b2] += log(0.5*exp(vdata.loglikelihood[pVote->pos][pVote->base][read_b1]) + 0.5*exp(vdata.loglikelihood[pVote->pos][pVote->base][read_b2])) + pVote->log_quality;
           if(!pVote->prior)			
             base_logquality[b1b2] += log(0.5*exp(vdata.loglikelihood[pVote->pos][pVote->base][read_b1]) + 0.5*exp(vdata.loglikelihood[pVote->pos][pVote->base][read_b2])) + pVote->log_quality;
-         }
-       }
-       tr1::tuple<int, int, int> mse_base;
-       double max_loglikelihood = -numeric_limits<double>::infinity();
-       for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
+        }
+      }
+    tr1::tuple<int, int, int> mse_base;
+    double max_loglikelihood = -numeric_limits<double>::infinity();
+    for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
+      int& b1 = tr1::get<0>(*H);
+      int& b2 = tr1::get<1>(*H);
+      int& b1b2 = tr1::get<2>(*H);
+
+      if(b1==b2) {
+        base_loglikelihood[b1b2] += log(0.25) + log(1.0 - vdata.opt->h_rate);
+        base_logquality[b1b2] += log(0.25) + log(1.0 - vdata.opt->h_rate);		    
+      } else if(b1<b2) {
+        base_loglikelihood[b1b2] += -log(6.0) + log(vdata.opt->h_rate);
+        base_logquality[b1b2] += -log(6.0) + log(vdata.opt->h_rate);		    
+      }
+
+      if(base_loglikelihood[b1b2]>max_loglikelihood) {
+        max_loglikelihood = base_loglikelihood[b1b2];
+        mse_base = *H;
+      }
+    }
+
+    // Extract ML.
+    if(nVotes[i]!=0 && (nVotes[i]<=vdata.opt->max_cov || vdata.opt->max_cov==0) && nVotes[i]>=vdata.opt->min_cov) {
+      // accept changes
+      corr_seq[i] = intToBase(tr1::get<0>(mse_base), tr1::get<1>(mse_base));		
+    } else {
+      // Reject correction if received too many/few votes.
+      corr_seq[i] = orig_seq.at(i);
+      tr1::get<0>(mse_base) = tr1::get<1>(mse_base) = orig_base;
+    }
+
+    // Quality score computation.
+    double total_prob=0, error_prob=0;
+    if(!isAnyBase(tr1::get<0>(mse_base)) && !isAnyBase(tr1::get<0>(mse_base)))
+      for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
         int& b1 = tr1::get<0>(*H);
         int& b2 = tr1::get<1>(*H);
         int& b1b2 = tr1::get<2>(*H);
 
-        if(b1==b2) {
-          base_loglikelihood[b1b2] += log(0.25) + log(1.0 - vdata.opt->h_rate);
-          base_logquality[b1b2] += log(0.25) + log(1.0 - vdata.opt->h_rate);		    
-        } else if(b1<b2) {
-          base_loglikelihood[b1b2] += -log(6.0) + log(vdata.opt->h_rate);
-          base_logquality[b1b2] += -log(6.0) + log(vdata.opt->h_rate);		    
-        }
+        float prob = exp(base_logquality[b1b2]-base_logquality[tr1::get<2>(mse_base)]);
+        total_prob += prob;
+        if(b1!=tr1::get<0>(mse_base) || b2!=tr1::get<1>(mse_base))
+          error_prob += prob;
+      }
+    error_prob /= total_prob;
+    if(error_prob >= 1e-100)
+      qual_seq[i] = min(93, max(0, (int)floor(-10.0*log(error_prob) / log(10.0) / max(1.0, (double)nVotes[i])))) + 33;
+    else
+      qual_seq[i] = 33+93;
 
-        if(base_loglikelihood[b1b2]>max_loglikelihood) {
-          max_loglikelihood = base_loglikelihood[b1b2];
-          mse_base = *H;
+    // update confusion matrix
+    if(total_prob>0 && !isAnyBase(orig_base))
+      for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
+        int& b1 = tr1::get<0>(*H);
+        int& b2 = tr1::get<1>(*H);
+        int& b1b2 = tr1::get<2>(*H);
+
+        float prob = exp(base_logquality[b1b2]-base_logquality[tr1::get<2>(mse_base)]);
+        if(readfile.isOrig(readid)) {
+          vdata.confMat[i][b1][orig_base]+=0.5*prob/total_prob;
+          vdata.confMat[i][b2][orig_base]+=0.5*prob/total_prob;    
+        } else {
+          vdata.confMat[seq_len-i-1][3-b1][3-orig_base]+=0.5*prob/total_prob;
+          vdata.confMat[seq_len-i-1][3-b2][3-orig_base]+=0.5*prob/total_prob;			    
         }
       }
-
-      // Extract ML.
-      if(nVotes[i]!=0 && (nVotes[i]<=vdata.opt->max_cov || vdata.opt->max_cov==0) && nVotes[i]>=vdata.opt->min_cov) {
-        // accept changes
-        corr_seq[i] = intToBase(tr1::get<0>(mse_base), tr1::get<1>(mse_base));		
-      } else {
-        // Reject correction if received too many/few votes.
-        corr_seq[i] = orig_seq.at(i);
-        tr1::get<0>(mse_base) = tr1::get<1>(mse_base) = orig_base;
-      }
-
-      // Quality score computation.
-      double total_prob=0, error_prob=0;
-      if(!isAnyBase(tr1::get<0>(mse_base)) && !isAnyBase(tr1::get<0>(mse_base)))
-        for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
-          int& b1 = tr1::get<0>(*H);
-          int& b2 = tr1::get<1>(*H);
-          int& b1b2 = tr1::get<2>(*H);
-
-          float prob = exp(base_logquality[b1b2]-base_logquality[tr1::get<2>(mse_base)]);
-          total_prob += prob;
-          if(b1!=tr1::get<0>(mse_base) || b2!=tr1::get<1>(mse_base))
-            error_prob += prob;
-        }
-      error_prob /= total_prob;
-      if(error_prob >= 1e-100)
-        qual_seq[i] = min(93, max(0, (int)floor(-10.0*log(error_prob) / log(10.0) / max(1.0, (double)nVotes[i])))) + 33;
-      else
-        qual_seq[i] = 33+93;
-
-      // update confusion matrix
-      if(total_prob>0 && !isAnyBase(orig_base))
-        for(vector<tr1::tuple<int,int,int> >::iterator H=vdata.hypothesis.begin(); H!=vdata.hypothesis.end(); H++) {
-          int& b1 = tr1::get<0>(*H);
-          int& b2 = tr1::get<1>(*H);
-          int& b1b2 = tr1::get<2>(*H);
-
-          float prob = exp(base_logquality[b1b2]-base_logquality[tr1::get<2>(mse_base)]);
-          if(readfile.isOrig(readid)) {
-            vdata.confMat[i][b1][orig_base]+=0.5*prob/total_prob;
-            vdata.confMat[i][b2][orig_base]+=0.5*prob/total_prob;    
-          } else {
-            vdata.confMat[seq_len-i-1][3-b1][3-orig_base]+=0.5*prob/total_prob;
-            vdata.confMat[seq_len-i-1][3-b2][3-orig_base]+=0.5*prob/total_prob;			    
-          }
-        }
-    }
+  }
 
   // Update histogram.
   if(vdata.opt->save_stats){
@@ -236,11 +236,11 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
   /*foreach(graphlab::edge_id_t eid, scope.out_edge_ids()) { 
     Edge& edge = scope.edge_data(eid);
     for (int i = 0 ; i < seq_len; ++i){
-      if (i - edge.offset < 0){
-    	  continue;
-      }
-    	edge.add_to_message(i - edge.offset, corr_seq[i]); 
+    if (i - edge.offset < 0){
+    continue;
+    }
+    edge.add_to_message(i - edge.offset, corr_seq[i]); 
     } 
-  } */  
+    } */  
 }
- 
+
