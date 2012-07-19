@@ -143,7 +143,6 @@ void saveStat(const Options& opt, vector<int>& histogram, int max_seq_len, doubl
 int main(int argc, char** argv) {
   // Initialize constants.
   Options opt(argc, argv);
-
   // Initialize reads, votes, and confusion matrix.
   MMAPReads* readfile1 = new MMAPReads(opt.readFName);
   MMAPReads readfile = *readfile1;
@@ -162,7 +161,6 @@ int main(int argc, char** argv) {
       max_read_id = readid;
     }
   }
-    
   double*** loglikelihood = initLoglikelihood_Mat(opt, max_seq_len);
   // candidate hypothesis
   vector<tr1::tuple<int, int, int> > hypothesis;
@@ -200,13 +198,16 @@ int main(int argc, char** argv) {
       }
     }
 
-
+    set<pair<unsigned int, unsigned int> > edges;
     for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
      for(map<unsigned int, NeighborInfo>::iterator it1 = it->second->begin(); it1 != it->second->end(); ++it1){	
         if (it->first != it1->first){
         	if (readid_to_vertexid[it->first] == readid_to_vertexid[it1->first]){
         	} else {
+            if (edges.find(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first])) == edges.end()){
           		graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], *(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
+              edges.insert(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first]));
+            }
         	}
 	}
       }
@@ -216,12 +217,11 @@ int main(int argc, char** argv) {
   for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) {   
     core.add_task(vid, graph_update, 100.);
   }
-
   core.start();
 
   //reduce function  
   tr1::shared_ptr<MyResult> result(new MyResult(max_seq_len, opt));
-  cerr << "readfiledfile[0]"<<readfile[0]<<"\n";
+ 
   for(unsigned int readid=opt.read_st; readid<opt.read_ed; readid++) {
   //for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) { 
     graphlab::vertex_id_t vid = readid_to_vertexid[readid]; 
@@ -254,10 +254,7 @@ int main(int argc, char** argv) {
   }
   fout.close();
   fqual.close(); 
- 
   saveStat(opt, result->histogram, max_seq_len, result->confMat);
-
   deleteMatrix(loglikelihood, max_seq_len);
-  
   return 0;
 }
