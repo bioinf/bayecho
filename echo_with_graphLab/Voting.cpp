@@ -28,8 +28,6 @@ using namespace std;
 
 typedef std::map<unsigned int, std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> > >  NeighborMap;
 
-gl_types::glshared<double> RED_PROPORTION;
-
 void deleteMatrix(double*** matrix, int len){
   for (int i = 0; i < len; ++i){
     for (int j = 0; j < 4; ++j){
@@ -41,19 +39,18 @@ void deleteMatrix(double*** matrix, int len){
 }
 
 double*** initLoglikelihood_Mat(const Options& opt, int max_seq_len) {
-  double*** confMat = new double**[max_seq_len];
+  double*** confMat_temp = new double**[max_seq_len];
   double*** loglikelihood = new double**[max_seq_len];
   for (int i = 0; i < max_seq_len; ++i){
-    confMat[i] = new double*[4];
+    confMat_temp[i] = new double*[4];
     loglikelihood[i] = new double*[4];
     for (int j = 0; j < 4; ++j){
-      confMat[i][j] = new double[4];
+      confMat_temp[i][j] = new double[4];
       loglikelihood[i][j] = new double[4];
     }
   }		
-  zero_Mat(max_seq_len, confMat);
+  zero_Mat(max_seq_len, confMat_temp);
   zero_Mat(max_seq_len, loglikelihood);
-
   // Initialize error loglikelihood matrix.
   if(opt.confMatFName==NULL) {
     // If no confusion matrix supplied, use majority weight instead.
@@ -74,9 +71,9 @@ double*** initLoglikelihood_Mat(const Options& opt, int max_seq_len) {
       tot[pos].resize(4);
       for(int trueb=0; trueb<4; trueb++)
         for(int calledb=0; calledb<4; calledb++) {
-          fin >> confMat[pos][trueb][calledb];
-          confMat[pos][trueb][calledb]+=1.0;		    
-          tot[pos][calledb] += confMat[pos][trueb][calledb];
+          fin >> confMat_temp[pos][trueb][calledb];
+          confMat_temp[pos][trueb][calledb]+=1.0;		    
+          tot[pos][calledb] += confMat_temp[pos][trueb][calledb];
         }
     }
     fin.close();
@@ -85,7 +82,7 @@ double*** initLoglikelihood_Mat(const Options& opt, int max_seq_len) {
     for(int pos=0; pos<file_len; pos++)
       for(int trueb=0; trueb<4; trueb++)
         for(int calledb=0; calledb<4; calledb++)
-          loglikelihood[pos][calledb][trueb] = log(confMat[pos][trueb][calledb]) - log(tot[pos][calledb]);
+          loglikelihood[pos][calledb][trueb] = log(confMat_temp[pos][trueb][calledb]) - log(tot[pos][calledb]);
 
     // Fill the gap. 
     for(int pos=file_len; pos<max_seq_len; pos++)
@@ -93,7 +90,7 @@ double*** initLoglikelihood_Mat(const Options& opt, int max_seq_len) {
         for(int b2=0; b2<4; b2++)
           loglikelihood[pos][b1][b2] = loglikelihood[file_len-1][b1][b2];
   }  
-  deleteMatrix(confMat, max_seq_len);
+  deleteMatrix(confMat_temp, max_seq_len);
   return loglikelihood;  
 }
 
@@ -110,7 +107,7 @@ void generateHypothesis(bool heterozygous, vector<tr1::tuple<int, int, int> >& h
   }
 }
 
-void saveStat(const Options& opt, vector<int>& histogram, int max_seq_len, double*** confMat){
+void saveStat(const Options& opt, vector<int>& histogram, int max_seq_len, double*** confMat_temp){
   if(opt.save_stats) {
     // Output histogram.
     ostringstream fname;
@@ -130,7 +127,7 @@ void saveStat(const Options& opt, vector<int>& histogram, int max_seq_len, doubl
     for(int pos=0; pos<max_seq_len; pos++) {
       for(int b1=0; b1<4; b1++) {
         for(int b2=0; b2<4; b2++)
-          fout << confMat[pos][b1][b2] << ' ';
+          fout << confMat_temp[pos][b1][b2] << ' ';
         fout << endl;
       }
       fout << endl;
@@ -184,19 +181,12 @@ int main(int argc, char** argv) {
   gl_types::core core;
   map<int, graphlab::vertex_id_t> readid_to_vertexid; 
   graph_type&  graph= core.graph(); 
-
   for (unsigned int readid=opt.read_st; readid<opt.read_ed; readid++){
-    graphlab::vertex_id_t  id = graph.add_vertex(MyNode(readid, readfile1, &opt, max_seq_len, loglikelihood, hypothesis));
+    graphlab::vertex_id_t id = graph.add_vertex(tr1::shared_ptr<MyNode>(new MyNode(readid, readfile1, &opt, max_seq_len, loglikelihood, hypothesis)));
     readid_to_vertexid.insert(pair<int, graphlab::vertex_id_t>(readid, id));
   }
   for (int neighb_i = 0; neighb_i < neighborLoader.size(); neighb_i++){
     NeighborMap neighbors = neighborLoader[neighb_i]->get_map(min_read_id, max_read_id);	    
-    for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
-      if (readid_to_vertexid.find(it->first) == readid_to_vertexid.end()){
-        graphlab::vertex_id_t  id = graph.add_vertex(MyNode(it->first, readfile1, &opt, max_seq_len, loglikelihood, hypothesis));
-        readid_to_vertexid.insert(pair<int, graphlab::vertex_id_t>(it->first, id));
-      }
-    }
 
     set<pair<unsigned int, unsigned int> > edges;
     for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
@@ -205,56 +195,60 @@ int main(int argc, char** argv) {
           if (readid_to_vertexid[it->first] == readid_to_vertexid[it1->first]){
           } else {
             if (edges.find(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first])) == edges.end()){
-              graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], *(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
+              graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], tr1::shared_ptr<Edge>(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
               edges.insert(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first]));
             }
           }
+
         }
       }
     }
-  }	
+  }
   graph.finalize(); 
   for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) {   
     core.add_task(vid, graph_update, 100.);
   }
+  tr1::shared_ptr<MyResult> result(new MyResult(max_seq_len, opt));
+  CONF_MAT.set(result->confMat);
   core.start();
 
   //reduce function  
-  tr1::shared_ptr<MyResult> result(new MyResult(max_seq_len, opt));
-
   for(unsigned int readid=opt.read_st; readid<opt.read_ed; readid++) {
-    //for (graphlab::vertex_id_t vid = 0; vid < graph.num_vertices(); ++vid) { 
     graphlab::vertex_id_t vid = readid_to_vertexid[readid]; 
-    //cout << "vid "<< vid << " readid " << readid;
-    fout << graph.vertex_data(vid).correct_read<< endl;
-    fqual << graph.vertex_data(vid).qual << endl;
+    fout << graph.vertex_data(vid)->correct_read<< endl;
+    fqual << graph.vertex_data(vid)->qual << endl;
 
-    if ((graph.vertex_data(vid).correct_read.size() != graph.vertex_data(vid).qual.size()) || graph.vertex_data(vid).qual.size()!=  strlen(readfile[readid]) ){
-      cerr <<"Error "<<readid<< " cor_size "<<graph.vertex_data(vid).correct_read.size() << " qual size " <<graph.vertex_data(vid).qual.size() << " str size \n" <<readfile[readid]<<"\n" ;
-      cerr <<graph.vertex_data(vid).read_id<<" vid"<< vid <<"\n";
+    if ((graph.vertex_data(vid)->correct_read.size() != graph.vertex_data(vid)->qual.size()) || graph.vertex_data(vid)->qual.size()!=  strlen(readfile[readid]) ){
+      cerr <<"Error "<<readid<< " cor_size "<<graph.vertex_data(vid)->correct_read.size() << " qual size " <<graph.vertex_data(vid)->qual.size() << " str size \n" <<readfile[readid]<<"\n" ;
+      cerr <<graph.vertex_data(vid)->read_id<<" vid"<< vid <<"\n";
     }
 
 
-    if(!readfile.isOrig(graph.vertex_data(vid).read_id))
+    if(!readfile.isOrig(graph.vertex_data(vid)->read_id))
       continue;
-    for (int i1 = 0; i1 < max_seq_len; ++i1){
+   /* for (int i1 = 0; i1 < max_seq_len; ++i1){
       for (int i2 = 0 ; i2 < 4; ++i2){
         for (int i3 = 0; i3 < 4; ++i3){
-          result->confMat[i1][i2][i3] += graph.vertex_data(vid).confMat[i1][i2][i3];
+          result->confMat[i1][i2][i3] += graph.vertex_data(vid)->confMat[i1][i2][i3];
         }
       }
-    }
+    }*/
 
-    if(result-> hist_read_ids.find(graph.vertex_data(vid).read_id)==result-> hist_read_ids.end()){
-      for (set<unsigned int>::iterator aa = graph.vertex_data(vid).my_neighbors.begin(); aa !=graph.vertex_data(vid).my_neighbors.end(); ++aa){
-        result->hist_read_ids.insert(*aa);
+    if(result-> hist_read_ids.find(graph.vertex_data(vid)->read_id)==result-> hist_read_ids.end()){
+      foreach(graphlab::edge_id_t eid, graph.out_edge_ids(vid)){
+        if (graph.edge_data(eid)->is_neighbor()){
+          result->hist_read_ids.insert(graph.vertex_data(graph.target(eid))->read_id);
+        }
       }
-      result->histogram[graph.vertex_data(vid).nVote]+=1;	
+      // for (set<unsigned int>::iterator aa = graph.vertex_data(vid)->my_neighbors.begin(); aa !=graph.vertex_data(vid)->my_neighbors.end(); ++aa){
+      //   result->hist_read_ids.insert(*aa);
+      // }
+      result->histogram[graph.vertex_data(vid)->nVote] += 1;	
     }
   }
   fout.close();
-  fqual.close(); 
-  saveStat(opt, result->histogram, max_seq_len, result->confMat);
+  fqual.close();
+  saveStat(opt, result->histogram, max_seq_len, /*result->confMat*/ CONF_MAT.get_val());
   deleteMatrix(loglikelihood, max_seq_len);
   return 0;
 }

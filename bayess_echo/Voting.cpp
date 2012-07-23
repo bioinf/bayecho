@@ -12,6 +12,8 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <time.h>
+
 
 #include "util.hpp"
 #include "DNASeq.hpp"
@@ -102,23 +104,34 @@ void generateHypothesis(bool heterozygous, vector<tr1::tuple<int, int, int> >& h
       hypothesis.push_back(tr1::make_tuple(b, b, b*4+b));
   }
 }
+void print_time(const char* str){
+  time_t cur_time;
+  struct tm * timeinfo;
+  time( &cur_time);
+  timeinfo = localtime( &cur_time); 
+  cerr << str << " "  << asctime(timeinfo) << "\n";
+}
 
 int main(int argc, char** argv) {
+  print_time("Begin voting");
   // Initialize constants.
   Options opt(argc, argv);
-
+  
   // Initialize reads, votes, and confusion matrix.
   MMAPReads readfile(opt.readFName);
+  print_time("constructed read file");
   int max_seq_len = 0;
   for(unsigned int readid=opt.read_st; readid<opt.read_ed; readid++) {
     int seq_len = strlen(readfile[readid]);
     if(seq_len>max_seq_len) max_seq_len = seq_len;
   }
+  print_time("found max_seq_len");
 
   // candidate hypothesis
   vector<tr1::tuple<int, int, int> > hypothesis;
   generateHypothesis(opt.h_rate>0, hypothesis);
-
+  
+  print_time("generated hypothesis");
   // Confusion matrix.
   // Error loglikelihood matrix.
   double confMat[max_seq_len][4][4];
@@ -131,6 +144,7 @@ int main(int argc, char** argv) {
     }
   }
   initLoglikelihoodMat(opt, max_seq_len, confMat, loglikelihood, confMat1);
+  print_time("init matrix");
 
   // Voting Mechanism.
   // Statitstics.
@@ -158,6 +172,7 @@ int main(int argc, char** argv) {
   for(unsigned int readid = opt.read_st; readid<opt.read_ed; readid++) {
     //if (readid != 1)
     //	continue;
+    print_time("begin collect votes for readid" + readid);
     string orig_seq = string(readfile[readid]);
     const int seq_len = orig_seq.size();
     string corr_seq(seq_len, 0);
@@ -188,6 +203,7 @@ int main(int argc, char** argv) {
           (*readNeighbors)[nn->first] = nn->second;
       }
     }
+    print_time("constructed neighbors"); 
     vector<Brother> neighborsForClust;
 
     //find realNeigbor by Hammer
@@ -199,37 +215,36 @@ int main(int argc, char** argv) {
       const int overlap = neighbors->second.get_overlap(seq_len, neighbor_seq_len);
       if(!neighbors->second.isNeighbor(seq_len, neighbor_seq_len, opt.K, opt.h, opt.e))
         continue;
-      string new_brother ="";
-      //cerr << "st1 "<< neighbors->second.get_st1() <<"\n";
-      //cerr << neighbor_seq <<"\n";
-
+      ostringstream new_brother;
       if (neighbors->second.get_offset() < 0){              
         for (int iter = -neighbors->second.get_offset(); iter < seq_len; ++iter){
-          new_brother += neighbor_seq[iter];
+          new_brother << neighbor_seq[iter];
         }  
         for (int iter = 0; iter < -neighbors->second.get_offset(); ++iter){
-          new_brother += '_';
+          new_brother << '_';
         }
 
       } else {
         for (int iter = 0; iter <neighbors->second.get_offset(); ++iter){
-          new_brother += '_';
+          new_brother << '_';
         }
         for (int iter = neighbors->second.get_offset(); iter < seq_len; ++iter){
-          new_brother += neighbor_seq[iter - neighbors->second.get_offset()];
+          new_brother << neighbor_seq[iter - neighbors->second.get_offset()];
         }
 
       }
-      neighborsForClust.push_back(Brother(neighborId, new_brother));
+      neighborsForClust.push_back(Brother(neighborId, new_brother.str()));
     }
+    print_time("make neighbors in nessesary format " + neighborsForClust.size());
     vector<Brother> realNeighbors = findRealBrothers(orig_seq, neighborsForClust, confMat1);
+    print_time("found real neighbors");
     tr1::shared_ptr<map<unsigned int, NeighborInfo> > realNeighborsMap(new map<unsigned int, NeighborInfo>);
     for (size_t real_neighbor_id = 0; real_neighbor_id < realNeighbors.size(); ++real_neighbor_id){
       unsigned int id =(unsigned int) realNeighbors[real_neighbor_id].read_id;
       (*realNeighborsMap)[id] = (*readNeighbors)[id];
     }
     readNeighbors = realNeighborsMap;
-
+    print_time("begin real voting");
 
     // Voting.
     // Collect votes.
@@ -372,6 +387,7 @@ int main(int argc, char** argv) {
             confMat[seq_len-i-1][3-b2][3-orig_base]+=0.5*prob/total_prob;			    
           }
         }
+        print_time("end real voting");
     }
 
     // Update histogram.
