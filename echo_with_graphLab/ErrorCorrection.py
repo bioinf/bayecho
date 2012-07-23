@@ -25,6 +25,8 @@ import math
 HashingCmd = "hashing"
 NeighborJoinCmd = "NeighborJoin"
 NeighborJoinParamCmd = "NeighborJoinParam"
+ParallelNeighborJoinCmd = "ParallelNeighborJoin"
+ParallelNeighborJoinParamCmd = "ParallelNeighborJoinParam"
 VotingCmd = "Voting"
 
 ##########################
@@ -347,6 +349,9 @@ if __name__ == '__main__':
     parser.add_option("--keep_all_files", action="store_true", dest="keep_all_files", help="Keep all temporary files. By default, temporary files are deleted automatically.", default=False)
     parser.add_option("--hash", action="store", dest="hash_file", type="string", help="hash file", default=None)
     parser.add_option("--index", action="store", dest="index_file", type="string", help="index_file", default=None)
+
+    parser.add_option("--pn", action="store_true", dest="pn", help="Do parallel neighboring (default: False)", default=False)
+
     (options, args) = parser.parse_args()
     if len(args)!=1:
         parser.print_help()
@@ -354,6 +359,11 @@ if __name__ == '__main__':
     OrigReadFName = args[0]
     hash_file = options.hash_file
     index_file = options.index_file
+
+    if options.pn:
+        NeighborJoinCmd = os.path.join(ProgramDir, ParallelNeighborJoinCmd)
+        NeighborJoinParamCmd = os.path.join(ProgramDir, ParallelNeighborJoinParamCmd)
+ 
 
     # Check for eistence of input file
     if not os.path.isfile(OrigReadFName):

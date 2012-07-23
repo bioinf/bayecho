@@ -1,9 +1,9 @@
-LDFLAGS+=-lgraphlab -lboost_program_options -lpthread
+LDFLAGS+=-lgraphlab -lboost_program_options -lpthread -ltbb
 CXX = g++
-CXXFLAGS = -Wall -O3 -w
+CXXFLAGS = -Wall -O3 -w -fopenmp
 HEADERS = *.h*
 LIB = node.o edge.o update_function.o message.o DNASeq.o NeighborSet.o KmerHashMap.o
-TARGETS = hashing NeighborJoin NeighborJoinParam Voting 
+TARGETS = hashing NeighborJoin NeighborJoinParam ParallelNeighborJoin ParallelNeighborJoinParam Voting 
 
 %.o:	%.cpp $(HEADERS)
 	$(CXX) -c $(CXXFLAGS) $< -o $*.o $(LDFLAGS) 
@@ -23,7 +23,7 @@ release:
 	mkdir release/log
 	cp ErrorCorrection.py release/
 	cp util.hpp DNASeq.hpp KmerHashMap.hpp MMAP.hpp MMAPReads.hpp NeighborSet.hpp release/
-	cp DNASeq.cpp KmerHashMap.cpp hashing.cpp HashMerge.cpp NeighborSet.cpp NeighborJoin.cpp NeighborJoinParam.cpp NeighborMerge.cpp Voting.cpp release/
+	cp DNASeq.cpp KmerHashMap.cpp hashing.cpp HashMerge.cpp NeighborSet.cpp NeighborJoin.cpp NeighborJoinParam.cpp ParallelNeighborJoin.cpp ParallelNeighborJoinParam.cpp NeighborMerge.cpp Voting.cpp release/
 	cp Makefile release/
 	cp sample_data.txt release/
 	cp sample_answer.txt release/
