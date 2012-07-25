@@ -21,7 +21,7 @@
 #include "node.h"
 #include "edge.h"
 #include "update_function.h"
-#include"result_histogram.h"
+#include "result_histogram.h"
 
 using namespace std;
 
@@ -93,7 +93,16 @@ double*** initLoglikelihood_Mat(const Options& opt, int max_seq_len) {
   deleteMatrix(confMat_temp, max_seq_len);
   return loglikelihood;  
 }
-
+set<string> find_bad_reads(){
+  ifstream f_inapp_reads("inapplicable_with_error.fasta");
+  set<string> inapp_reads;
+  while(!f_inapp_reads.eof()){
+    string seq;
+    f_inapp_reads >> seq;
+    inapp_reads.insert(seq);
+  }
+  return inapp_reads;
+}
 void generateHypothesis(bool heterozygous, vector<tr1::tuple<int, int, int> >& hypothesis) {
   hypothesis.clear();
   if(heterozygous) {
@@ -187,20 +196,23 @@ int main(int argc, char** argv) {
   }
   for (int neighb_i = 0; neighb_i < neighborLoader.size(); neighb_i++){
     NeighborMap neighbors = neighborLoader[neighb_i]->get_map(min_read_id, max_read_id);	    
-
     set<pair<unsigned int, unsigned int> > edges;
     for ( NeighborMap::iterator it = neighbors.begin(); it != neighbors.end(); ++it){
-      for(map<unsigned int, NeighborInfo>::iterator it1 = it->second->begin(); it1 != it->second->end(); ++it1){	
+      if (readid_to_vertexid.find(it->first) == readid_to_vertexid.end()){
+        cerr << "error new vertex ";
+      }
+      for(map<unsigned int, NeighborInfo>::iterator it1 = it->second->begin(); it1 != it->second->end(); ++it1){
         if (it->first != it1->first){
-          if (readid_to_vertexid[it->first] == readid_to_vertexid[it1->first]){
-          } else {
-            if (edges.find(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first])) == edges.end()){
-              graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], tr1::shared_ptr<Edge>(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
-              edges.insert(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first]));
-            }
+          if (readid_to_vertexid.find(it1->first) == readid_to_vertexid.end()){
+            graphlab::vertex_id_t id = graph.add_vertex(tr1::shared_ptr<MyNode>(new MyNode(it1->first, readfile1, &opt, max_seq_len, loglikelihood, hypothesis)));
+            readid_to_vertexid.insert(pair<int, graphlab::vertex_id_t>(it1->first, id));
           }
-
+          if (edges.find(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first])) == edges.end()){
+            graph.add_edge(readid_to_vertexid[it->first], readid_to_vertexid[it1->first], tr1::shared_ptr<Edge>(new Edge(it1->second.get_offset(), it1->second.get_nerr())));
+            edges.insert(pair<unsigned int, unsigned int>(readid_to_vertexid[it->first], readid_to_vertexid[it1->first]));
+          }
         }
+
       }
     }
   }
@@ -219,36 +231,33 @@ int main(int argc, char** argv) {
     fqual << graph.vertex_data(vid)->qual << endl;
 
     if ((graph.vertex_data(vid)->correct_read.size() != graph.vertex_data(vid)->qual.size()) || graph.vertex_data(vid)->qual.size()!=  strlen(readfile[readid]) ){
-      cerr <<"Error "<<readid<< " cor_size "<<graph.vertex_data(vid)->correct_read.size() << " qual size " <<graph.vertex_data(vid)->qual.size() << " str size \n" <<readfile[readid]<<"\n" ;
-      cerr <<graph.vertex_data(vid)->read_id<<" vid"<< vid <<"\n";
+       cerr <<"Error "<<readid<< " cor_size "<<graph.vertex_data(vid)->correct_read.size() << " qual size " <<graph.vertex_data(vid)->qual.size() << " str size \n" <<readfile[readid]<<"\n" ;
+       cerr <<graph.vertex_data(vid)->read_id<<" vid"<< vid <<"\n";
     }
 
 
     if(!readfile.isOrig(graph.vertex_data(vid)->read_id))
       continue;
-   /* for (int i1 = 0; i1 < max_seq_len; ++i1){
-      for (int i2 = 0 ; i2 < 4; ++i2){
-        for (int i3 = 0; i3 < 4; ++i3){
-          result->confMat[i1][i2][i3] += graph.vertex_data(vid)->confMat[i1][i2][i3];
-        }
-      }
-    }*/
 
-    if(result-> hist_read_ids.find(graph.vertex_data(vid)->read_id)==result-> hist_read_ids.end()){
+    if(result->hist_read_ids.find(graph.vertex_data(vid)->read_id) == result->hist_read_ids.end()){
       foreach(graphlab::edge_id_t eid, graph.out_edge_ids(vid)){
         if (graph.edge_data(eid)->is_neighbor()){
           result->hist_read_ids.insert(graph.vertex_data(graph.target(eid))->read_id);
         }
       }
-      // for (set<unsigned int>::iterator aa = graph.vertex_data(vid)->my_neighbors.begin(); aa !=graph.vertex_data(vid)->my_neighbors.end(); ++aa){
-      //   result->hist_read_ids.insert(*aa);
-      // }
-      result->histogram[graph.vertex_data(vid)->nVote] += 1;	
+      int n_votes = graph.vertex_data(vid)->nVote;
+      if (result->histogram.size() < n_votes){
+        while(result->histogram.size() < n_votes + 1){
+          result->histogram.push_back(0);
+        }
+      }
+      result->histogram[n_votes] += 1;	
     }
   }
   fout.close();
   fqual.close();
-  saveStat(opt, result->histogram, max_seq_len, /*result->confMat*/ CONF_MAT.get_val());
+  saveStat(opt, result->histogram, max_seq_len, CONF_MAT.get_val());
   deleteMatrix(loglikelihood, max_seq_len);
+  cerr << "end Voting\n";
   return 0;
 }

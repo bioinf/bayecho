@@ -43,13 +43,13 @@ struct MyResult{
 
 
   ~MyResult(){
-    for (int i = 0; i < max_seq_len; ++i){
+   /* for (int i = 0; i < max_seq_len; ++i){
       for (int j = 0; j < 4; ++j){
         delete[] confMat[i][j];
       }
       delete[] confMat[i];
     }
-    delete[] confMat;
+    delete[] confMat;*/
   }
 };
 #endif

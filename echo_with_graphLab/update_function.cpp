@@ -24,7 +24,6 @@
 
 gl_types::glshared<double***> CONF_MAT;
 
-
 void add_to_confMat(graphlab::any& current_confMat, const graphlab::any& added_value){
   int i,j,k;
   pair<vector<int>, double> val = added_value.as<pair< vector<int>, double> >();
@@ -37,10 +36,11 @@ void add_to_confMat(graphlab::any& current_confMat, const graphlab::any& added_v
   current_confMat.as<double***>()[i][j][k] += value;
 }
 
-
-
 void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
   tr1::shared_ptr<MyNode> vdata= scope.vertex_data();
+  if (vdata->get_read_id() >= vdata->opt->read_ed){
+    return;
+  }
   const string orig_seq = string(vdata->get_readfile()[vdata->get_read_id()]);
   const int seq_len = orig_seq.size();
   string corr_seq(seq_len, 0);
@@ -50,8 +50,6 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
 
   MMAPReads& readfile = vdata->get_readfile();
   unsigned int readid = vdata->get_read_id();
-
-  // If read is reverse complement read, output directly.
   if(!readfile.isOrig(readid)) {
     for(int i=0; i<seq_len; i++) {
       corr_seq[i] = 'N';
@@ -62,12 +60,10 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
     vdata->nVote = -1;
     return;
   }
-
   map<unsigned int, NeighborInfo> readNeighbors;
   map<unsigned int, graphlab::edge_id_t> readid_to_edgeid;
   foreach(graphlab::edge_id_t eid, scope.out_edge_ids()) {
     tr1::shared_ptr<MyNode> neighbor =  scope.neighbor_vertex_data(scope.target(eid));
-    //readid_to_vertexid.insert(pair<unsigned int, graphlab::vertex_id_t>(neighbor->read_id, scope.target(eid)));
     readid_to_edgeid.insert(pair<unsigned int, graphlab::edge_id_t>(neighbor->read_id, eid));
     tr1::shared_ptr<Edge> edge= scope.edge_data(eid);
     NeighborInfo nn (edge->get_offset(), edge->get_nerr());
@@ -75,6 +71,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
   }
   NeighborInfo myself(0,0);
   readNeighbors[readid] = myself;
+
 
   // Voting.
   // Collect votes.
@@ -93,23 +90,6 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
         scope.edge_data(readid_to_edgeid[neighbors->first])->not_neighbor();
       continue;
     }
-
-    /*//collect corrected chars
-      graphlab::vertex_id_t neihbor_vertexid = readid_to_vertexid[neighbors->first];
-      foreach(graphlab::edge->id_t eid, scope.in_edge->ids()) {
-      Edge& edge->= scope.edge->data(eid);
-      for (map<unsigned int, char>::iterator it = edge->get_message().get_message().begin(); it != edge->get_message().get_message().end(); ++it){
-      if ( vdata->correct_read_chars.find(it->first) == vdata->correct_read_chars.end()){
-      vdata->correct_read_chars.insert(pair<int, char>(it->first, it->second));
-      } else {
-      char a =  vdata->correct_read_chars.find(it->first)->second;
-      if ( a != it->second){
-      vdata->correct_read_chars[it->first] = '*';
-      }  
-      }
-      }
-      }*/
-
     const int& st1 = neighbors->second.get_st1();
     const int& st2 = neighbors->second.get_st2();
     const char* overlap_seq = &neighbor_seq[st2];
@@ -118,7 +98,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
     for(int offset=0; offset<overlap; offset++) {
       int calledb = baseToInt(overlap_seq[offset]);
       if(!isAnyBase(calledb)) {
-        if(!orig) calledb = 3 - calledb;
+        if(!orig) calledb = 3-calledb;
         Votes[st1+offset].push_back(VoteInfo(pos, calledb, log_quality, !orig));
         nVotes[st1+offset] += 1;
         // Original read gets to vote twice.
@@ -133,18 +113,15 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
     }
   }
 
+
   // Extract most likely sequence and output.
   for(int i=0; i<seq_len; i++) {
-    /*if (vdata->correct_read_chars.find(i) != vdata->correct_read_chars.end() && vdata->correct_read_chars[i] != '*'){
-      corr_seq[i] = vdata->correct_read_chars[i];
-      continue;
-      }*/
     const int orig_base = baseToInt(orig_seq.at(i));
     vector<float> base_loglikelihood(16, 0.0); // Likelihood with prior votes.
     vector<float> base_logquality(16, 0.0);	    // Likelihood without prior votes.
 
     // perform actual ML estimation
-    
+
     for(vector<VoteInfo>::iterator pVote=Votes[i].begin(); pVote!=Votes[i].end(); pVote++)
       for(vector<tr1::tuple<int,int,int> >::iterator H=vdata->hypothesis_begin; H!=vdata->hypothesis_end; H++) {
         int& b1 = tr1::get<0>(*H);
@@ -152,20 +129,12 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
         int& b1b2 = tr1::get<2>(*H);
         int read_b1 = pVote->reverse_complement?3-b1:b1;
         int read_b2 = pVote->reverse_complement?3-b2:b2;
-        if(b1>b2) {
-          base_loglikelihood[b1b2] = -numeric_limits<float>::infinity();
-          if(!pVote->prior)
-            base_logquality[b1b2] = -numeric_limits<float>::infinity();			
-        } else if(b1==b2) {
-          // Homozygous case.
+        if(b1 ==b2) {
           base_loglikelihood[b1b2] += vdata->loglikelihood[pVote->pos][pVote->base][read_b1] + pVote->log_quality;
           if(!pVote->prior)			
             base_logquality[b1b2] += vdata->loglikelihood[pVote->pos][pVote->base][read_b1] + pVote->log_quality;			
-        } else  { // b1 < b2
-          // Heterozygous case.
-          base_loglikelihood[b1b2] += log(0.5*exp(vdata->loglikelihood[pVote->pos][pVote->base][read_b1]) + 0.5*exp(vdata->loglikelihood[pVote->pos][pVote->base][read_b2])) + pVote->log_quality;
-          if(!pVote->prior)			
-            base_logquality[b1b2] += log(0.5*exp(vdata->loglikelihood[pVote->pos][pVote->base][read_b1]) + 0.5*exp(vdata->loglikelihood[pVote->pos][pVote->base][read_b2])) + pVote->log_quality;
+        } else  {  
+          cerr <<"b1 != b2\n";
         }
       }
     tr1::tuple<int, int, int> mse_base;
@@ -179,8 +148,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
         base_loglikelihood[b1b2] += log(0.25) + log(1.0 - vdata->opt->h_rate);
         base_logquality[b1b2] += log(0.25) + log(1.0 - vdata->opt->h_rate);		    
       } else if(b1<b2) {
-        base_loglikelihood[b1b2] += -log(6.0) + log(vdata->opt->h_rate);
-        base_logquality[b1b2] += -log(6.0) + log(vdata->opt->h_rate);		    
+        cerr << "b1<b2\n";
       }
 
       if(base_loglikelihood[b1b2]>max_loglikelihood) {
@@ -192,7 +160,7 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
     // Extract ML.
     if(nVotes[i]!=0 && (nVotes[i]<=vdata->opt->max_cov || vdata->opt->max_cov==0) && nVotes[i]>=vdata->opt->min_cov) {
       // accept changes
-      corr_seq[i] = intToBase(tr1::get<0>(mse_base), tr1::get<1>(mse_base));		
+      corr_seq[i] = intToBase(tr1::get<0>(mse_base), tr1::get<1>(mse_base));	
     } else {
       // Reject correction if received too many/few votes.
       corr_seq[i] = orig_seq.at(i);
@@ -226,48 +194,24 @@ void graph_update(gl_types::iscope &scope, gl_types::icallback &scheduler) {
         int& b1b2 = tr1::get<2>(*H);
 
         float prob = exp(base_logquality[b1b2]-base_logquality[tr1::get<2>(mse_base)]);
-        if(readfile.isOrig(readid)) {
-          vector<int> dim;
-          dim.push_back(i);
-          dim.push_back(b1);
-          dim.push_back(orig_base);
+        vector<int> dim;
+        dim.push_back(i);
+        dim.push_back(b1);
+        dim.push_back(orig_base);
+        if (prob > 0){
           CONF_MAT.apply(add_to_confMat,pair<vector<int>, double>(dim, 0.5*prob/total_prob));
-          //vdata->confMat[i][b1][orig_base]+=0.5*prob/total_prob;
           dim[1] = b2;
           CONF_MAT.apply(add_to_confMat, pair<vector<int>, double>(dim, 0.5*prob/total_prob));
-          //vdata->confMat[i][b2][orig_base]+=0.5*prob/total_prob;    
-        } else {
-          vector<int> dim;
-          dim.push_back(seq_len-i-1);
-          dim.push_back(3 - b1);
-          dim.push_back(3 - orig_base);
-          CONF_MAT.apply(add_to_confMat,pair<vector<int>, double>(dim, 0.5*prob/total_prob));
-          dim[1] = 3 - b2;
-          CONF_MAT.apply(add_to_confMat, pair<vector<int>, double>(dim, 0.5*prob/total_prob));
-          //vdata->confMat[seq_len-i-1][3-b1][3-orig_base]+=0.5*prob/total_prob;
-          //vdata->confMat[seq_len-i-1][3-b2][3-orig_base]+=0.5*prob/total_prob;			    
         }
       }
   }
 
   // Update histogram.
   if(vdata->opt->save_stats){
-    if(readfile.isOrig(readid))
-      vdata->nVote = nVotes[0];
-    else
-      vdata->nVote = nVotes[seq_len-1];
+    vdata->nVote = nVotes[0];
   }
   // Output corrected read.
   vdata->correct_read = corr_seq;
   vdata->qual = qual_seq;
-  /*foreach(graphlab::edge->id_t eid, scope.out_edge->ids()) { 
-    Edge& edge->= scope.edge->data(eid);
-    for (int i = 0 ; i < seq_len; ++i){
-    if (i - edge->offset < 0){
-    continue;
-    }
-    edge->add_to_message(i - edge->offset, corr_seq[i]); 
-    } 
-    } */  
 }
 
