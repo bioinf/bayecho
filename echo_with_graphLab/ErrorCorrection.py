@@ -23,11 +23,13 @@ import math
 ##########################
 
 HashingCmd = "hashing"
+HashMergeCmd = "HashMerge"
 NeighborJoinCmd = "NeighborJoin"
 NeighborJoinParamCmd = "NeighborJoinParam"
+NeighborMergeCmd = "NeighborMerge"
+VotingCmd = "Voting"
 ParallelNeighborJoinCmd = "ParallelNeighborJoin"
 ParallelNeighborJoinParamCmd = "ParallelNeighborJoinParam"
-VotingCmd = "Voting"
 
 ##########################
 
@@ -49,6 +51,11 @@ OutputFName = "corrected"
 
 RevCompFName = "revdataMMAP.txt"
 ConfMatFName = "confMatEst.txt"
+
+DataBlockSize = 1000000
+NHashFile = 8
+ReadMergeBatchSize = 4
+HashMergeBatchSize = 8
 
 ModelSelectionSetSize = 100000
 ModelSelectionNHashFile = 1
@@ -102,7 +109,7 @@ class CmdExecuter:
             attempts = 0
             while not finished and attempts <= max_attempts:
                 try:
-                    proc = subprocess.Popen(cmd, bufsize=-1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    proc = subprocess.Popen(cmd, bufsize=10240, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     stdout, stderr = proc.communicate()
                     if stdout != "":
                         print stdout
@@ -232,6 +239,20 @@ def makeNeighborJoinParamCmd(readFName, inputFNames, read_st, read_ed, read_st2,
         cmd += ["-input", "%s"%fname]
     return cmd
 
+def makeHashMergeCmd(inputFNames, fileNamePrefix, fileNameSuffix):
+    return [HashMergeCmd, "-fpre", fileNamePrefix, "-fsuf", fileNameSuffix] + list(itertools.chain(*[ ["-input", fname] for fname in inputFNames ]))
+
+def makeNeighborMergeCmd(readFName, inputFNames, read_st, read_ed, fileNamePrefix, fileNameSuffix):
+    cmd = [NeighborMergeCmd,
+          "-read", "%s"%readFName,
+           "-st", "%d"%read_st,
+           "-ed", "%d"%read_ed,
+           "-fpre", "%s"%fileNamePrefix,
+           "-fsuf", "%s"%fileNameSuffix]
+    for fname in inputFNames:
+        cmd += ["-input", "%s"%fname]
+    return cmd
+
 def makeVotingCmd(readFName, inputFNames, read_st, read_ed, K, h, e, fileNamePrefix, fileNameSuffix, confMatFName=None, maxCov=None, minCov=None, estCov=None, h_rate=None, saveParam=False):
     cmd = [VotingCmd,
            "-read", "%s"%readFName,
@@ -260,54 +281,154 @@ def makeVotingCmd(readFName, inputFNames, read_st, read_ed, K, h, e, fileNamePre
     return cmd
 
 # Hash the kmers of the reads and create hash files. Hash files are then merged and used as input to NeighborJoin.
-def Hashing(cmdexecuter, target_st, target_ed, nData, paramK):
-  # Check for file
-  tmpf = open(RevCompFName) # Will throw error if file does not open
-  tmpf.close()
+def Hashing(cmdexecuter, target_st, target_ed, DataBlockSize, nData, paramK, NHashFile):
+    # DataBlockSize should be about 2M for a machine with 14GB RAM
+    # Check for file
+    tmpf = open(RevCompFName) # Will throw error if file does not open
+    tmpf.close()
 
-  # Building hash
-  ihash_st = 0
-  ihash_ed = 1
-  cmdexecuter.exeCmd(makeHashingCmd(RevCompFName, target_st, target_ed, 1, ihash_st, ihash_ed, paramK, TmpDIR, "%d"%target_st))
-  cmdexecuter.wait() # This will prevent parallization in hashing
+    # Building hash
+    HashFiles = [[]]
+    IndexFiles = [[]]
+    #Likely a mistake here
+    #Must be (target_ed - target_st + 1)
+    tot_num_hash_files = int(math.ceil(float(target_ed) / DataBlockSize))
+    MsgLogger.log("Total number of hash files: " + str(tot_num_hash_files))
+    cur_hash_file = 0
+    for read_st in range(target_st, target_ed, DataBlockSize):
+        read_ed = min(read_st + DataBlockSize, nData)
+        ihash_st = 0
+        ihash_ed = 1
+        cmdexecuter.exeCmd(makeHashingCmd(RevCompFName, read_st, read_ed, NHashFile, ihash_st, ihash_ed, paramK, TmpDIR, "%d"%read_st))
+        cmdexecuter.wait() # This will prevent parallization in hashing
 
-  # Rename final hash and index files from tmp names to permanent names
-  cmdexecuter.exeCmd(["mv", os.path.join(TmpDIR, "%d.hash"%(target_st)), os.path.join(TmpDIR, "all.hash")])
-  cmdexecuter.exeCmd(["mv", os.path.join(TmpDIR, "%d.index"%(target_st)), os.path.join(TmpDIR, "all.index")])
-  cmdexecuter.wait()
+        # HashMerge
+        # Merge together hash files into one main hash file
+        HashFiles[0].append(os.path.join(TmpDIR, "%d.hash"%(read_st)))
+        IndexFiles[0].append(os.path.join(TmpDIR, "%d.index"%(read_st)))
+        assert(len(HashFiles) == len(IndexFiles))
+        for i in xrange(len(HashFiles)):
+            assert(len(HashFiles[i]) == len(IndexFiles[i]))
+            if len(HashFiles[i])>=ReadMergeBatchSize or (len(HashFiles[i])>=1 and cur_hash_file==tot_num_hash_files-1):
+                #cmdexecuter.wait()
+                if len(HashFiles)==i+1:
+                    HashFiles.append([])
+                    IndexFiles.append([])
+                # Run appropriate merging
+                if len(HashFiles[i]) > 1:
+                    inputFNames = list(itertools.chain(*zip(HashFiles[i], IndexFiles[i])))
+                    cmdexecuter.exeCmd(makeHashMergeCmd(inputFNames, TmpDIR, "t_%d_%d"%(i+1, len(HashFiles[i+1]))))
+                    cmdexecuter.wait()
+                elif len(HashFiles[i]) == 1:
+                    cmdexecuter.exeCmd(["mv", HashFiles[i][0], os.path.join(TmpDIR, "t_%d_%d.hash"%(i+1, len(HashFiles[i+1])))])
+                    cmdexecuter.exeCmd(["mv", IndexFiles[i][0], os.path.join(TmpDIR, "t_%d_%d.index"%(i+1, len(IndexFiles[i+1])))])
+                    cmdexecuter.wait()
+                # Add resulting hash file to "tree"
+                assert(len(HashFiles[i+1]) == len(IndexFiles[i+1]))
+                HashFiles[i+1].append(os.path.join(TmpDIR, "t_%d_%d.hash"%(i+1, len(HashFiles[i+1]))))
+                IndexFiles[i+1].append(os.path.join(TmpDIR, "t_%d_%d.index"%(i+1, len(IndexFiles[i+1]))))
+                # Remove temporary hash files
+                if not KeepAllFiles:
+                    if len(HashFiles[i]) > 1:
+                        cmdexecuter.exeCmd(["rm"]+HashFiles[i])
+                        cmdexecuter.exeCmd(["rm"]+IndexFiles[i])
+                        cmdexecuter.wait()
+                HashFiles[i] = []
+                IndexFiles[i] = []
+        cur_hash_file += 1 # If parallel, need proper locking
+    # Rename final hash and index files from tmp names to permanent names
+    cmdexecuter.exeCmd(["mv", HashFiles[-1][0], os.path.join(TmpDIR, "all.hash")])
+    cmdexecuter.exeCmd(["mv", IndexFiles[-1][0], os.path.join(TmpDIR, "all.index")])
+    cmdexecuter.wait()
 
-def Neighboring(cmdexecuter, target_st, target_ed, nData, paramK, paramh, parame, maxCov, nKmers, param):
-  read_st = target_st
-  read_ed = target_ed 
-  read_st2 = 0
-  read_ed2 = nData
+#target_st = 0
+#target_ed = ModelSelectionSetSize
+#DataBlockSize = nData
+#nData = nData
+#maxCov = 0
+#NHashFile = ModelSelectionNHashFile = 1
+#param = True
+def Neighboring(cmdexecuter, target_st, target_ed, DataBlockSize, nData, paramK, paramh, parame, maxCov, NHashFile, nKmers, param):
+    # DataBlockSize should be nData (the entire data set)
+    CachedBlocks = set()
+    for read_st in xrange(target_st, target_ed, DataBlockSize):
+        #read_ed = min(read_st + DataBlockSize, nData)
+        read_ed = min(target_ed, nData)
+        for read_st2 in xrange(0, nData, DataBlockSize):
+            read_ed2 = min(read_st2 + DataBlockSize, nData)
 
-  if read_st<=read_st2:
-    st, ed, st2, ed2 = read_st, read_ed, read_st2, read_ed2
-  else:
-    st, ed, st2, ed2 = read_st2, read_ed2, read_st, read_ed
+            if read_st<=read_st2:
+                st, ed, st2, ed2 = read_st, read_ed, read_st2, read_ed2
+            else:
+                st, ed, st2, ed2 = read_st2, read_ed2, read_st, read_ed
 
-  # Create empty neighbor file
-  NeighborFiles = [[]]
-  ihash_st = 0
-  ihash_ed = nKmers
+            if (st, ed, st2, ed2) in CachedBlocks:
+                continue
 
-  inputFNames = [ os.path.join(TmpDIR, "all.hash"), os.path.join(TmpDIR, "all.index") ]
-  # NeighborJoin command
-  if param == False:
-    cmdexecuter.exeCmd(makeNeighborJoinCmd(RevCompFName, inputFNames, st, ed, st2, ed2, nData, paramK, paramh, parame, maxCov, TmpDIR, "%d_%d_%d"%(0, st, st2), ihash_st, ihash_ed))
-  else:
-    cmdexecuter.exeCmd(makeNeighborJoinParamCmd(RevCompFName, inputFNames, st, ed, st2, ed2, nData, paramK, paramh, parame, maxCov, TmpDIR, "%d_%d_%d"%(0, st, st2), ihash_st, ihash_ed))
-  cmdexecuter.wait()
-  NeighborFiles[0].append(os.path.join(TmpDIR, "neighbors_%d_%d_%d.list"%(0, st, st2)))
-  
-  cmdexecuter.exeCmd(["mv", NeighborFiles[-1][0], os.path.join(TmpDIR, "neighbors_%d_%d.list"%(st, st2))])
-  cmdexecuter.wait()
+            CachedBlocks.add((st, ed, st2, ed2))
+            # Create empty neighbor file
+            NeighborFiles = [[]]
 
-def Voting(cmdexecuter, target_st, target_ed, nData, paramh, parame, confMatFName = None, maxCov = None, minCov = None, estCov = None, h_rate = None, saveParam=False):
+            for hashfile in xrange(NHashFile):
+                # NeighborJoin for each hash block
+                ihash_st = hashfile*nKmers/NHashFile
+                ihash_ed = (hashfile+1)*nKmers/NHashFile
+
+                inputFNames = [ os.path.join(TmpDIR, "all.hash"), os.path.join(TmpDIR, "all.index") ]
+                # NeighborJoin command
+                if param == False:
+                    cmdexecuter.exeCmd(makeNeighborJoinCmd(RevCompFName, inputFNames, st, ed, st2, ed2, DataBlockSize, paramK, paramh, parame, maxCov, TmpDIR, "%d_%d_%d"%(hashfile, st, st2), ihash_st, ihash_ed))
+                else:
+                    cmdexecuter.exeCmd(makeNeighborJoinParamCmd(RevCompFName, inputFNames, st, ed, st2, ed2, DataBlockSize, paramK, paramh, parame, maxCov, TmpDIR, "%d_%d_%d"%(hashfile, st, st2), ihash_st, ihash_ed))
+                cmdexecuter.wait()
+
+                # NeighborMerge
+                # Merge together adjacency lists into one main adjacency list
+                NeighborFiles[0].append(os.path.join(TmpDIR, "neighbors_%d_%d_%d.list"%(hashfile, st, st2)))
+                for i in xrange(len(NeighborFiles)):
+                    if len(NeighborFiles[i])>=HashMergeBatchSize or (len(NeighborFiles[i])>=1 and hashfile==NHashFile-1):
+                        # Extend list if another level of "tree" is added
+                        if len(NeighborFiles)==i+1:
+                            NeighborFiles.append([])
+
+                        # Run appropriate merging
+                        if len(NeighborFiles[i])>1:
+                            cmdexecuter.exeCmd(makeNeighborMergeCmd(RevCompFName, NeighborFiles[i], min(st, st2), max(ed, ed2), TmpDIR, "%d_%d_%d_%d"%(i+1, len(NeighborFiles[i+1]), st, st2)))
+                        elif len(NeighborFiles[i])==1:
+                            cmdexecuter.exeCmd(["mv", NeighborFiles[i][0], os.path.join(TmpDIR, "neighbors_%d_%d_%d_%d.list"%(i+1, len(NeighborFiles[i+1]), st, st2))])
+                        # Add resulting neighbor list to "tree"
+                        NeighborFiles[i+1].append(os.path.join(TmpDIR, "neighbors_%d_%d_%d_%d.list"%(i+1, len(NeighborFiles[i+1]), st, st2)))
+                        cmdexecuter.wait()
+                        # Remove temporary neighbor files if necessary
+                        if not KeepAllFiles:
+                            if len(NeighborFiles[i]) > 1:
+                                cmdexecuter.exeCmd(["rm"]+NeighborFiles[i])
+                        NeighborFiles[i] = []
+                        cmdexecuter.wait()
+
+            # Rename final neighbors file (main adjacency list) from tmp name to permanent name
+            cmdexecuter.wait()
+            cmdexecuter.exeCmd(["mv", NeighborFiles[-1][0], os.path.join(TmpDIR, "neighbors_%d_%d.list"%(st, st2))])
+            cmdexecuter.wait()
+
+#cmdexecuter
+#target_st = 0
+#target_ed = ModelSelectionSetSize
+#DataBlockSize = ModelSelectionSetSize
+#nData
+#cur_paramh
+#cur_parame
+#NHashFile
+#h_rate=options.h_rate
+#saveParam=True
+def Voting(cmdexecuter, target_st, target_ed, DataBlockSize, nData, paramh, parame, NHashFile, confMatFName = None, maxCov = None, minCov = None, estCov = None, h_rate = None, saveParam=False):
     # Vote!
-  inputFNames = [ os.path.join(TmpDIR, "neighbors_%d_%d.list"%(0,0))]
-  cmdexecuter.exeCmd(makeVotingCmd(RevCompFName, inputFNames, target_st, target_ed, paramK, paramh, parame, TmpDIR, "%d_%d_%f"%(target_st, paramh, parame), confMatFName, maxCov, minCov, estCov, h_rate, saveParam))
+    for read_st in range(target_st, target_ed, DataBlockSize):
+        read_ed = min(read_st + DataBlockSize, nData)
+
+        inputFNames = [ os.path.join(TmpDIR, "neighbors_%d_%d.list" % (min(read_st, read_st2), max(read_st, read_st2))) for read_st2 in range(0, target_ed, DataBlockSize)]
+
+        cmdexecuter.exeCmd(makeVotingCmd(RevCompFName, inputFNames, read_st, read_ed, paramK, paramh, parame, TmpDIR, "%d_%d_%f"%(read_st, paramh, parame), confMatFName, maxCov, minCov, estCov, h_rate, saveParam))
 
 def loadConfMat(fname):
     ConfMat = []
@@ -327,8 +448,10 @@ if __name__ == '__main__':
     # Program paths
     ProgramDir = sys.path[0]
     HashingCmd = os.path.join(ProgramDir, HashingCmd)
+    HashMergeCmd = os.path.join(ProgramDir, HashMergeCmd)
     NeighborJoinCmd = os.path.join(ProgramDir, NeighborJoinCmd)
     NeighborJoinParamCmd = os.path.join(ProgramDir, NeighborJoinParamCmd)
+    NeighborMergeCmd = os.path.join(ProgramDir, NeighborMergeCmd)
     VotingCmd = os.path.join(ProgramDir, VotingCmd)
 
     ##########################
@@ -338,6 +461,10 @@ if __name__ == '__main__':
     parser.add_option("-l", "--log", action="store", dest="log_filename", type="string", help="Log file name", default=None)
     parser.add_option("--DD", "--tmp_dir", action="store", dest="tmp_directory", type="string", help="Temporary data directory", default=None)
     parser.add_option("-u", "--ncpu", action="store", dest="ncpu", type="int", help="Number of processes used in training", default=maxThread)
+    parser.add_option("-b", "--block_size", action="store", dest="bsize", type="int", help="Split data into blocks of specified size", default=None)
+    parser.add_option("--nh", "--n_hash_block", action="store", dest="nhash", type="int", help="Split hash table into n tables", default=NHashFile)
+    parser.add_option("--rm", "--read_merge_size", action="store", dest="read_merge", type="int", help="Merge n hash tables at a time", default=ReadMergeBatchSize )
+    parser.add_option("--hm", "--hash_merge_batch_size", action="store", dest="hash_merge", type="int", help="Merge n adjacency lists at a time", default=HashMergeBatchSize)
 
     parser.add_option("-k", "--kmer", action="store", dest="k", type="int", help="k-mer size used for hashing", default=None)
     parser.add_option("-e", "--min_error_tolerance", action="store", dest="e", type="float", help="Minimum error tolerance for parameter searching", default=min_parame)
@@ -347,8 +474,6 @@ if __name__ == '__main__':
     parser.add_option("--h_rate", "--heterozygous_rate", action="store", dest="h_rate", type="float", help="Rate for heterozygous site", default=None)
     parser.add_option("--model_selection_size", action="store", dest="msize", type="int", help="Model selection data set size", default=ModelSelectionSetSize)
     parser.add_option("--keep_all_files", action="store_true", dest="keep_all_files", help="Keep all temporary files. By default, temporary files are deleted automatically.", default=False)
-    parser.add_option("--hash", action="store", dest="hash_file", type="string", help="hash file", default=None)
-    parser.add_option("--index", action="store", dest="index_file", type="string", help="index_file", default=None)
 
     parser.add_option("--pn", action="store_true", dest="pn", help="Do parallel neighboring (default: False)", default=False)
 
@@ -357,15 +482,12 @@ if __name__ == '__main__':
         parser.print_help()
         sys.exit(0)
     OrigReadFName = args[0]
-    hash_file = options.hash_file
-    index_file = options.index_file
 
     if options.pn:
         NeighborJoinCmd = os.path.join(ProgramDir, ParallelNeighborJoinCmd)
         NeighborJoinParamCmd = os.path.join(ProgramDir, ParallelNeighborJoinParamCmd)
- 
 
-    # Check for eistence of input file
+    # Check for existence of input file
     if not os.path.isfile(OrigReadFName):
         print "ERROR: Input file " + OrigReadFName + " does not exist."
         sys.exit(1)
@@ -474,6 +596,10 @@ if __name__ == '__main__':
     # Output file name
     OutputFName = options.output_filename
 
+    NHashFile = options.nhash
+    ReadMergeBatchSize = options.read_merge
+    HashMergeBatchSize = options.hash_merge
+
     maxThread = options.ncpu
 
     KeepAllFiles = options.keep_all_files
@@ -561,6 +687,12 @@ if __name__ == '__main__':
             ReadSt.append(ReadSt[-1]+ReadLen[-1]+1+1) # 1 byte for string array NULL end, 1 byte for indicator of original read
     ReadSt = ReadSt[:-1]
 
+    # Set DataBlockSize
+    if(options.bsize is None):
+        DataBlockSize = 1000000
+    else:
+        DataBlockSize = options.bsize
+
     ModelSelectionSetSize = min(options.msize, nData)
 
     random.seed(1)
@@ -628,10 +760,7 @@ if __name__ == '__main__':
     cmdexecuter = CmdExecuter(1)
 
     # Hashing arguments: (cmdexecuter, startread, endread, stepsize, num reads, K, num hash_blocks)
-    if (hash_file is None) or (index_file is None):
-    	Hashing(cmdexecuter, 0, nData, nData, paramK)
-    else:
-      os.system("cp " + hash_file + " "+ index_file + " " + TmpDIR + "/")
+    Hashing(cmdexecuter, 0, nData, DataBlockSize, nData, paramK, 1)
 
     # Read in total number of kmers
     nKmers = -1
@@ -656,7 +785,7 @@ if __name__ == '__main__':
     #################################
     # Cluster reads for parameter selection
     # Construct Neighbor Sets
-    Neighboring(cmdexecuter, 0, ModelSelectionSetSize, nData,  paramK, min_paramh, max_parame, 0, nKmers, True)
+    Neighboring(cmdexecuter, 0, ModelSelectionSetSize, nData, nData, paramK, min_paramh, max_parame, 0, ModelSelectionNHashFile, nKmers, True)
     cmdexecuter.wait()
 
     # Parameter Search
@@ -665,7 +794,7 @@ if __name__ == '__main__':
     cmdexecuter = CmdExecuter(maxThread)
     for cur_paramh in arange(min_paramh, max_paramh+1, 2):
         for cur_parame in arange(min_parame, max_parame+0.01, 0.05):
-            Voting(cmdexecuter, 0, ModelSelectionSetSize, nData, cur_paramh, cur_parame,  h_rate=options.h_rate, saveParam = True)
+            Voting(cmdexecuter, 0, ModelSelectionSetSize, ModelSelectionSetSize, nData, cur_paramh, cur_parame, NHashFile, h_rate=options.h_rate, saveParam = True)
     cmdexecuter.wait()
 
     # Histogram Selection
@@ -700,7 +829,7 @@ if __name__ == '__main__':
     for em_iter in range(maxEMIter):
         # Voting has many purposes
         # Here it is used to compute the EM estimator for the Confusion Matrix
-        Voting(cmdexecuter, 0, ModelSelectionSetSize, nData, best_paramh, best_parame, confMatFName,
+        Voting(cmdexecuter, 0, ModelSelectionSetSize, ModelSelectionSetSize, nData, best_paramh, best_parame, NHashFile, confMatFName,
                maxCov, minCov, estCov, options.h_rate, saveParam = True)
         cmdexecuter.wait()
 
@@ -736,14 +865,14 @@ if __name__ == '__main__':
         # Construct adjacency lists of reads
         # Use one thread to maximize available memory
         cmdexecuter = CmdExecuter(1)
-        Neighboring(cmdexecuter, BatchSt, BatchEd, nData, paramK, best_paramh, best_parame, maxCov,  nKmers, False)
+        Neighboring(cmdexecuter, BatchSt, BatchEd, nData, nData, paramK, best_paramh, best_parame, maxCov, NHashFile, nKmers, False)
         cmdexecuter.wait()
 
         ######################################
         # Voting
         # Voting has multiple purposes
         # Here it is used to correct reads
-        Voting(cmdexecuter, BatchSt, BatchEd, nData,  best_paramh, best_parame,  confMatFName, maxCov, minCov, estCov, options.h_rate)
+        Voting(cmdexecuter, BatchSt, BatchEd, nData, nData, best_paramh, best_parame, NHashFile, confMatFName, maxCov, minCov, estCov, options.h_rate)
         cmdexecuter.wait()
 
         BatchSt += BatchSize
@@ -781,6 +910,7 @@ if __name__ == '__main__':
             readmap = mmap.mmap(TmpFile.fileno(), sum(ReadLen)+len(ReadLen))
             qualmap = mmap.mmap(QualTmpFile.fileno(), sum(ReadLen)+len(ReadLen))
             cur_read_order = 0
+            #for read_st in range(0, nData, DataBlockSize):
             for read_st in range(0, nData, nData):
                 with open(os.path.join(TmpDIR, "output_%d_%d_%f.txt"%(read_st, best_paramh, best_parame)), "r") as fin:
                     with open(os.path.join(TmpDIR, "quality_%d_%d_%f.txt"%(read_st, best_paramh, best_parame)), "r") as qualfin:
