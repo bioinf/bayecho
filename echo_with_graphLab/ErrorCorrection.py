@@ -281,6 +281,7 @@ def makeVotingCmd(readFName, inputFNames, read_st, read_ed, K, h, e, fileNamePre
     return cmd
 
 # Hash the kmers of the reads and create hash files. Hash files are then merged and used as input to NeighborJoin.
+# Hashing(cmdexecuter, 0, nData, DataBlockSize, nData, paramK, 1)
 def Hashing(cmdexecuter, target_st, target_ed, DataBlockSize, nData, paramK, NHashFile):
     # DataBlockSize should be about 2M for a machine with 14GB RAM
     # Check for file
@@ -290,9 +291,7 @@ def Hashing(cmdexecuter, target_st, target_ed, DataBlockSize, nData, paramK, NHa
     # Building hash
     HashFiles = [[]]
     IndexFiles = [[]]
-    #Likely a mistake here
-    #Must be (target_ed - target_st + 1)
-    tot_num_hash_files = int(math.ceil(float(target_ed) / DataBlockSize))
+    tot_num_hash_files = int(math.ceil(float(target_ed - target_st) / DataBlockSize))
     MsgLogger.log("Total number of hash files: " + str(tot_num_hash_files))
     cur_hash_file = 0
     for read_st in range(target_st, target_ed, DataBlockSize):
