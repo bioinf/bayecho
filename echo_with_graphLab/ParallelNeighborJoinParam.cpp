@@ -91,8 +91,6 @@ int main(int argc, char** argv) {
  
     // Construct Neighbor Sets
     unsigned int nKmer = kmer_mmap.getKmerNum();
-    unsigned long cnt_kmer = 0;
-    unsigned long cnt_nei = 0;
     #pragma omp parallel
     {
         #pragma omp single
