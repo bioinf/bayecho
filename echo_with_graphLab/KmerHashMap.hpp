@@ -24,7 +24,6 @@ struct KmerOccurrence {
 };
 
 class KmerHashMap {
-    static const unsigned int MaxBinSize;
 
     // Maps Kmers to (read_id, kmer_hit_pos) using Kmer_less comparator.
     //
@@ -37,7 +36,9 @@ class KmerHashMap {
     std::vector<KmerOccurrence> dummy;
     unsigned int ihash_st, ihash_ed, nhash;
 
-    public:
+public:
+    static const unsigned int MaxBinSize;
+        
     KmerHashMap() : ihash_st(0),ihash_ed(1),nhash(1) {};
     KmerHashMap(unsigned int ihash_st, unsigned int ihash_ed, unsigned int nhash) : ihash_st(ihash_st), ihash_ed(ihash_ed), nhash(nhash) {};
 
