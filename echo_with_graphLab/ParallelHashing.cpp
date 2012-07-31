@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <algorithm>
 
+#include <tr1/tuple>
 #include <tr1/unordered_map>
 #include <tr1/memory>
 #include <omp.h>
@@ -18,13 +19,13 @@ struct kmer_hash_compare {
     static size_t hash(const Kmer& a) { return my_hash(a); }
     static bool equal(const Kmer& a, const Kmer& b) { return my_cmp(a, b); }
 private:
-    Kmer_hash my_hash;
-    Kmer_cmp my_cmp;
+    static Kmer_hash my_hash;
+    static Kmer_cmp my_cmp;
 };
 
 typedef std::vector<KmerOccurrence> occ_list_type;
 typedef tbb::concurrent_hash_map<Kmer, occ_list_type, kmer_hash_compare> kmers_map_type;
-typedef tr1::unordered_map<Kmer, KmerOccurrence, Kmer_hash, Kmer_cmp> inner_map_type;
+typedef std::tr1::unordered_map<Kmer, KmerOccurrence, Kmer_hash, Kmer_cmp> inner_map_type;
 
 void dump_hash(const kmers_map_type&, const char*, const char*);
 
@@ -46,7 +47,7 @@ int main(int argc, char** argv) {
         for(int read_index = opt.read_st; read_index < opt.read_ed; read_index++) {
             bool orig = readfile.isOrig(read_index);
             inner_map_type occ_map;
-            tr1::shared_ptr<DNASeq> cur_read(new DNASeq(readfile[read_index]));
+            std::tr1::shared_ptr<DNASeq> cur_read(new DNASeq(readfile[read_index]));
 
             for (int pos = 0; pos <= cur_read->size() - opt.K; pos++) {
                 Kmer kmer(cur_read, pos, opt.K);
@@ -89,15 +90,15 @@ struct index_less {
     const Kmer& kmer1 = std::tr1::get<0>(a);
     const Kmer& kmer2 = std::tr1::get<0>(b);
       
-    if (kmer1.hash < kmer2.hash) {
+    if (kmer1.getHash() < kmer2.getHash()) {
         return true;
     }
     
-    if (kmer1.hash > kmer2.hash) {
+    if (kmer1.getHash() > kmer2.getHash()) {
         return false;
     }
     
-    return (kmer1.kmer < kmer2.kmer);
+    return (kmer1.getKmer() < kmer2.getKmer());
   }    
 };
 
@@ -154,6 +155,6 @@ void dump_hash(const kmers_map_type& kmers_map, const char* prefix, const char* 
         }
     }
 
-    fclose(fout[i]);
-    fclose(findexout[i]);
+    fclose(fout);
+    fclose(findexout);
 }

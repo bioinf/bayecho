@@ -100,6 +100,10 @@ class Kmer {
   inline std::string getKmer() const {
     return kmer;
   }
+  
+  unsigned int getHash() const {
+      return hash;
+  }
 };
 
 struct Kmer_hash {
