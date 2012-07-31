@@ -84,8 +84,8 @@ int main(int argc, char** argv) {
 }
 
 struct index_less {
-  inline bool operator()(const std::tr1::tuple<Kmer, occ_list_type* >& a,
-                                const std::tr1::tuple<Kmer, occ_list_type* >& b) const {
+  inline bool operator()(const std::tr1::tuple<Kmer, const occ_list_type* >& a,
+                                const std::tr1::tuple<Kmer, const occ_list_type* >& b) const {
       
     const Kmer& kmer1 = std::tr1::get<0>(a);
     const Kmer& kmer2 = std::tr1::get<0>(b);
@@ -114,7 +114,7 @@ void dump_hash(const kmers_map_type& kmers_map, const char* prefix, const char* 
     findexout = fopen(findexname.str().c_str(), "wb");
 
     // compute index
-    std::vector<std::tr1::tuple<Kmer, occ_list_type* > > index;
+    std::vector<std::tr1::tuple<Kmer, const occ_list_type* > > index;
     index.push_back(std::tr1::make_tuple(Kmer("Z"), (occ_list_type*) 0));
 
     for (kmers_map_type::const_iterator it = kmers_map.begin(); it != kmers_map.end(); it++) {
@@ -124,13 +124,13 @@ void dump_hash(const kmers_map_type& kmers_map, const char* prefix, const char* 
     // Remove the (Kmer("Z"),0) tuple.
     index.erase(index.begin());
     
-    std::sort(index.begin(), index.end(), index_less);
+    std::sort(index.begin(), index.end(), index_less());
 
     // Write out index.
     // Format: kmer string, number of reads with kmer
     // Writes out:
     // num kmers in block, (kmer, num reads with kmer)+
-    unsigned int nKmer = index.size();
+    const unsigned int nKmer = index.size();
     fwrite(&nKmer, sizeof(unsigned int), 1, findexout); // number of kmers
     for (unsigned int kid = 0; kid < nKmer; kid++) { // index of kmer
         const char* kmer = std::tr1::get<0>(index[kid]).getKmer().c_str();
@@ -143,10 +143,9 @@ void dump_hash(const kmers_map_type& kmers_map, const char* prefix, const char* 
     // Format: read ID, hit position
     // Writes out:
     // read id, pos within read
-    unsigned int nKmer = index.size();
     for (unsigned int kid = 0; kid < nKmer; kid++) {
         const Kmer& kmer = std::tr1::get<0>(index[kid]);
-        occ_list_type& occ_list = *std::tr1::get<1>(index[kid]);
+        const occ_list_type& occ_list = *std::tr1::get<1>(index[kid]);
         for (occ_list_type::const_iterator it = occ_list.begin(); it != occ_list.end(); it++) {
             const unsigned int& readid = it->readID;
             const unsigned int& pos = it->pos;
