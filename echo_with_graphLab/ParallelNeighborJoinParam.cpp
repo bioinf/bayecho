@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     MMAPReads readfile(opt.readFName);
  
     // Construct Neighbor Sets
-    unsigned int nKmer = kmer_mmap.getKmerNum();
+    //unsigned int nKmer = kmer_mmap.getKmerNum();
     #pragma omp parallel
     {
         #pragma omp single
@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
         }
 
         #pragma omp for
-        for (int kmer_index = 0; kmer_index < nKmer; kmer_index++) { //OMP requires kmer_index to be signed
+        for (int kmer_index = ihash_st; kmer_index < ihash_ed; kmer_index++) { //OMP requires kmer_index to be signed
             HashMMAP::ConstIterator kmer_iter = kmer_mmap.iterator(kmer_index);
             tr1::unordered_map<unsigned int, DNASeq> Reads;
 
