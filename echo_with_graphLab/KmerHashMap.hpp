@@ -314,6 +314,7 @@ class HashMMAP {
             cur_kmer_index++;
         }
         assert(tmpfpos == fbegin);
+        assert(cur_kmer_index == ihash_st);
 
         // Set f2begin
         f2begin = fpos2;
@@ -332,10 +333,10 @@ class HashMMAP {
             cur_kmer_index++;
         }
         assert(f2end <= hash_mmap.size());
-        if (cur_kmer_index != nKmer) {
+        if (cur_kmer_index != ihash_ed) {
             std::cout << "ERROR: kmer_hash_offsets was not initialized correctly!" << std::endl;
         }
-        assert(cur_kmer_index == nKmer);
+        assert(cur_kmer_index == ihash_ed);
     }
 
     inline ConstIterator begin() const {
