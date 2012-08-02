@@ -197,9 +197,9 @@ int main(int argc, char** argv) {
       tr1::shared_ptr<map<unsigned int, NeighborInfo> > newNeighbors = neighborLoader.get(readid);
       // Voting.
       // Collect votes.
-      ostringstream str;
-      str << readid << " "<<newNeighbors->size()<<"\n";
-      cerr << str.str();
+      //ostringstream str;
+      //str << readid << " "<<newNeighbors->size()<<"\n";
+      //cerr << str.str();
       set<unsigned int> my_neighbors;
       for(map<unsigned int, NeighborInfo>::iterator neighbors = newNeighbors->begin();
           neighbors!=newNeighbors->end(); neighbors++) {
