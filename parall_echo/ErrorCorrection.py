@@ -22,14 +22,12 @@ import math
 
 ##########################
 
-HashingCmd = "hashing"
+HashingCmd = "ParallelHashing"
 HashMergeCmd = "HashMerge"
-NeighborJoinCmd = "NeighborJoin"
-NeighborJoinParamCmd = "NeighborJoinParam"
+NeighborJoinCmd = "ParallelNeighborJoin"
+NeighborJoinParamCmd = "ParallelNeighborJoinParam"
 NeighborMergeCmd = "NeighborMerge"
 VotingCmd = "ParallelVoting"
-ParallelNeighborJoinCmd = "ParallelNeighborJoin"
-ParallelNeighborJoinParamCmd = "ParallelNeighborJoinParam"
 
 ##########################
 
@@ -474,17 +472,11 @@ if __name__ == '__main__':
     parser.add_option("--model_selection_size", action="store", dest="msize", type="int", help="Model selection data set size", default=ModelSelectionSetSize)
     parser.add_option("--keep_all_files", action="store_true", dest="keep_all_files", help="Keep all temporary files. By default, temporary files are deleted automatically.", default=False)
 
-    parser.add_option("--pn", action="store_true", dest="pn", help="Do parallel neighboring (default: False)", default=False)
-
     (options, args) = parser.parse_args()
     if len(args)!=1:
         parser.print_help()
         sys.exit(0)
     OrigReadFName = args[0]
-
-    if options.pn:
-        NeighborJoinCmd = os.path.join(ProgramDir, ParallelNeighborJoinCmd)
-        NeighborJoinParamCmd = os.path.join(ProgramDir, ParallelNeighborJoinParamCmd)
 
     # Check for existence of input file
     if not os.path.isfile(OrigReadFName):
@@ -742,7 +734,7 @@ if __name__ == '__main__':
 
     # Initialize K by using number of data
     if options.k is None:
-        paramK = max(int(maxReadLen/5.0), int(math.ceil(math.log(nData*max(ReadLen))/math.log(4))))
+        paramK = max(int(maxReadLen/6.0), int(math.ceil(math.log(nData*max(ReadLen))/math.log(4))))
     assert(paramK > 0)
 
     MsgLogger.log("Use parameter k = %d"%paramK, True)

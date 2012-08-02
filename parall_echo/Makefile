@@ -1,9 +1,9 @@
-LDFLAGS+=-lgraphlab -lboost_program_options -lpthread -ltbb
+LDFLAGS+= -lboost_program_options -lpthread -ltbb
 CXX = g++
 CXXFLAGS = -Wall -O3 -w -fopenmp
 HEADERS = *.h*
-LIB = node.o edge.o update_function.o message.o DNASeq.o NeighborSet.o KmerHashMap.o
-TARGETS = hashing HashMerge ParallelHashing NeighborJoin NeighborJoinParam ParallelNeighborJoin ParallelNeighborJoinParam ParallelVoting 
+LIB = DNASeq.o NeighborSet.o KmerHashMap.o NeighborSetOldLoader.o
+TARGETS = HashMerge NeighborMerge ParallelHashing ParallelNeighborJoin ParallelNeighborJoinParam ParallelVoting 
 
 %.o:	%.cpp $(HEADERS)
 	$(CXX) -c $(CXXFLAGS) $< -o $*.o $(LDFLAGS) 

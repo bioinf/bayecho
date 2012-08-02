@@ -144,12 +144,15 @@ class NeighborSetLoader {
     static const unsigned int MaxSeqLen;
     static const unsigned int CacheSize;
 
+    public:
     void load(unsigned int st, unsigned int ed) {
         if(NeighborFile==NULL) return;
 
         // Erase obsolete data.
-        if( Neighbors.begin()->first < st )
-            Neighbors.erase(Neighbors.begin(), Neighbors.lower_bound(st));
+       /* if( Neighbors.begin()->first < st )
+            Neighbors.erase(Neighbors.begin(), Neighbors.lower_bound(st));*/
+        Neighbors.clear();
+        std::cerr << "Neighbor size " << Neighbors.size();
 
         // Load new data.
         unsigned int curID;
@@ -180,6 +183,7 @@ class NeighborSetLoader {
             if(curID>=ed)
                 break;
         }
+        std::cerr << " now Neighbors "<< Neighbors.size() << "\n";
     }    
 
     public:
@@ -202,7 +206,7 @@ class NeighborSetLoader {
     inline std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> > get(unsigned int readID) {
         if(NeighborFile==NULL) return std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> >(new std::map<unsigned int, NeighborInfo>);
 
-        if( cacheInit || readID >= cacheSt + CacheSize ) {
+        /*if( cacheInit || readID >= cacheSt + CacheSize ) {
             while(readID > cacheSt + CacheSize) {
                 if(cacheInit) {
                     cacheSt = 0;
@@ -212,13 +216,15 @@ class NeighborSetLoader {
                 }
             }
             load(cacheSt, cacheSt+CacheSize);
-        }
+        }*/
 
         std::map<unsigned int, std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> > >::const_iterator it = Neighbors.find(readID);
         if(it != Neighbors.end())
             return it->second;
-        else
-            return std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> >(new std::map<unsigned int, NeighborInfo>);
+        else{
+          std::cerr << "Error: don't find neighbor set for read " << readID << "\n";
+          return std::tr1::shared_ptr<std::map<unsigned int, NeighborInfo> >(new std::map<unsigned int, NeighborInfo>);
+        }
     }
 };
 
