@@ -182,8 +182,6 @@ class NeighborSetLoader {
       if(curID>=ed)
         break;
     }
-    std::cerr<< "Load Neighbors from " <<st << " to " <<ed << " size "<<Neighbors.size() << "\n";
-
   }    
 
   public:
