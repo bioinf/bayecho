@@ -166,12 +166,11 @@ int main(int argc, char** argv) {
     if (end_block_index > opt.read_ed){
       end_block_index = opt.read_ed;
     }
-    cerr << "begin load \n";
     neighborLoader.load(begin_block_index, end_block_index - 1);
     tbb::concurrent_hash_map<unsigned int, string > corr_seqs;
     tbb::concurrent_hash_map<unsigned int, string > corr_quals;
-
-    #pragma omp parallel for  
+    vector<int> reads_votes(opt.read_ed, 0);  
+#pragma omp parallel for
     for(unsigned int readid = begin_block_index; readid<end_block_index; readid++) {
       const string orig_seq = string(readfile[readid]);
       const int seq_len = orig_seq.size();
@@ -344,14 +343,12 @@ int main(int argc, char** argv) {
         }
         if(!hist_readset_was[readid]){
           // All neighbors will not vote in the future and only beginning of the read gets to vote to improve independence.
-          for (set<unsigned int>::iterator it = my_neighbors.begin(); it != my_neighbors.end(); ++it){
-            if (*it < opt.read_ed)
-              hist_readset_was[*it] = true;
-          }
-          if(readfile.isOrig(readid))
+            for (set<unsigned int>::iterator it = my_neighbors.begin(); it != my_neighbors.end(); ++it){
+              if (*it < opt.read_ed){
+                hist_readset_was[*it] = true;
+              }
+            }
             histogram[nVotes[0]]+=1;
-          else
-            histogram[nVotes[seq_len-1]]+=1;
         }
       }
       omp_unset_lock(&hist_lock);
@@ -376,7 +373,6 @@ int main(int argc, char** argv) {
     corr_quals.clear();
     corr_seqs.clear();
   }
-
   fout.close();
   fqual.close();
   // Output other stats.
